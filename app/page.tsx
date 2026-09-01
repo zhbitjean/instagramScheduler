@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
 type MediaItem = { id: number | string; name: string; src: string; type: 'Photo' | 'Video'; duration?: string; path?: string };
+type InstagramAccount = { id: string; username: string };
 
 const sampleMedia: MediaItem[] = [
   { id: 1, name: 'Sunset walk.jpg', src: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=720&q=85', type: 'Photo' },
@@ -30,6 +31,8 @@ export default function Home() {
   const [accountStatus, setAccountStatus] = useState<'missing' | 'ready'>('missing');
   const [accountMessage, setAccountMessage] = useState('Connect your Instagram Professional account.');
   const [instagramUsername, setInstagramUsername] = useState('');
+  const [instagramAccounts, setInstagramAccounts] = useState<InstagramAccount[]>([]);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [selected, setSelected] = useState<Set<number | string>>(new Set());
   const [menuId, setMenuId] = useState<number | string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -94,17 +97,39 @@ export default function Home() {
     setMenuId(null);
   }
 
-  async function connectInstagram() {
+  async function refreshInstagramStatus() {
     try {
       const response = await fetch('http://127.0.0.1:3030/instagram/status');
       const body = await response.json();
-      if (body.connected) { setAccountStatus('ready'); setInstagramUsername(body.account.username); setAccountMessage('Professional account selected.'); return; }
-      if (!body.configured) { setAccountMessage('Meta credentials are missing. Add your Instagram App ID and Secret to the local service first.'); return; }
-      window.open('http://127.0.0.1:3030/instagram/connect', 'instagram-connect', 'width=620,height=760');
-      setAccountMessage('Finish authorization in the Instagram window, then click Check connection.');
+      setInstagramAccounts(body.accounts || []);
+      if (body.connected) { setAccountStatus('ready'); setInstagramUsername(body.account.username); setAccountMessage('Professional account selected.'); }
+      else { setAccountStatus('missing'); setInstagramUsername(''); setAccountMessage(body.configured ? 'Choose Add another account to sign in with Meta.' : 'Meta app setup is required before your first sign-in.'); }
     } catch {
       setAccountMessage('Start the Postflow local service before connecting Instagram.');
     }
+  }
+
+  function connectInstagram() {
+    const popup = window.open('http://127.0.0.1:3030/instagram/connect', 'instagram-connect', 'popup=yes,width=620,height=760');
+    if (!popup) { setAccountMessage('Allow pop-ups for Postflow, then try again.'); return; }
+    setAccountMessage('Sign in securely in the Meta window. Postflow never sees your password.');
+    const receiveConnection = (event: MessageEvent) => {
+      if (event.origin === 'http://127.0.0.1:3030' && event.data?.type === 'postflow-instagram-connected') {
+        window.removeEventListener('message', receiveConnection);
+        refreshInstagramStatus();
+        setAccountMenuOpen(false);
+      }
+    };
+    window.addEventListener('message', receiveConnection);
+  }
+
+  async function selectInstagramAccount(account: InstagramAccount) {
+    const response = await fetch('http://127.0.0.1:3030/instagram/select', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId: account.id }) });
+    if (!response.ok) { setAccountMessage('Could not select that account.'); return; }
+    setInstagramUsername(account.username);
+    setAccountStatus('ready');
+    setAccountMessage('Professional account selected.');
+    setAccountMenuOpen(false);
   }
 
   return (
@@ -112,7 +137,7 @@ export default function Home() {
       <header className="sticky top-0 z-30 border-b border-border/70 bg-background/90 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-[1500px] items-center justify-between px-5 lg:px-8">
           <div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><Sparkles className="size-4" /></div><div><p className="font-semibold leading-none tracking-tight">Postflow</p><p className="mt-1 text-[11px] text-muted-foreground">Instagram scheduler</p></div></div>
-          <div className="flex items-center gap-2"><button onClick={connectInstagram} className="hidden items-center gap-2 rounded-full border bg-card px-3 py-2 text-xs font-medium sm:flex"><span className={`size-2 rounded-full ${accountStatus === 'ready' ? 'bg-emerald-500' : 'bg-amber-400'}`} />{accountStatus === 'ready' ? `@${instagramUsername}` : 'Instagram not connected'} <ChevronDown className="size-3" /></button><Button variant="ghost" size="icon" aria-label="Help"><CircleHelp /></Button><Button variant="ghost" size="icon" aria-label="Settings"><Settings /></Button></div>
+          <div className="flex items-center gap-2"><div className="relative hidden sm:block"><button onClick={() => { setAccountMenuOpen((open) => !open); refreshInstagramStatus(); }} aria-expanded={accountMenuOpen} className="flex items-center gap-2 rounded-full border bg-card px-3 py-2 text-xs font-medium"><span className={`size-2 rounded-full ${accountStatus === 'ready' ? 'bg-emerald-500' : 'bg-amber-400'}`} />{accountStatus === 'ready' ? `@${instagramUsername}` : 'Instagram not connected'} <ChevronDown className={`size-3 transition ${accountMenuOpen ? 'rotate-180' : ''}`} /></button>{accountMenuOpen && <div className="absolute right-0 top-11 z-50 w-72 rounded-2xl border bg-card p-2 shadow-xl"><p className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Instagram accounts</p>{instagramAccounts.map((account) => <button key={account.id} onClick={() => selectInstagramAccount(account)} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-secondary"><span className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-[#7952e8] to-[#ef785b] text-[10px] font-bold text-white">{account.username.slice(0,2).toUpperCase()}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">@{account.username}</span><span className="block text-[11px] text-muted-foreground">Professional account</span></span>{instagramUsername === account.username && <Check className="size-4 text-emerald-500" />}</button>)}{instagramAccounts.length > 0 && <div className="my-1 border-t" />}<button onClick={connectInstagram} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-[#6942d0] hover:bg-[#f4f1ff]"><Plus className="size-4" /> Add another account</button><p className="px-3 pb-1 pt-2 text-[10px] leading-relaxed text-muted-foreground">Sign-in happens securely on Meta. Postflow never receives your password.</p></div>}</div><Button variant="ghost" size="icon" aria-label="Help"><CircleHelp /></Button><Button variant="ghost" size="icon" aria-label="Settings"><Settings /></Button></div>
         </div>
       </header>
       <div className="mx-auto max-w-[1500px] px-5 py-7 lg:px-8">
@@ -130,7 +155,7 @@ export default function Home() {
           <aside className="space-y-5">
             <section className="rounded-3xl border bg-card p-5 shadow-[0_18px_45px_rgb(45_35_80/5%)]">
               <div className="mb-4 flex items-center gap-3"><span className="grid size-9 place-items-center rounded-xl bg-[#eee9ff] text-[#6942d0]"><Camera className="size-4" /></span><div><h2 className="font-semibold">Instagram account</h2><p className="text-xs text-muted-foreground">Choose where this queue will publish</p></div></div>
-              {accountStatus === 'ready' ? <div className="flex items-center justify-between rounded-2xl border bg-background p-3"><div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-full bg-gradient-to-br from-[#7952e8] to-[#ef785b] text-xs font-bold text-white">{instagramUsername.slice(0, 2).toUpperCase()}</span><div><p className="text-sm font-semibold">@{instagramUsername}</p><p className="text-[11px] text-emerald-600">Professional account · selected</p></div></div><Check className="size-4 text-emerald-500" /></div> : <div><Button onClick={connectInstagram} className="h-10 w-full bg-[#7952e8] hover:bg-[#6843d5]"><Link2 /> Connect with Meta</Button><p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{accountMessage}</p></div>}
+              {accountStatus === 'ready' ? <div><div className="flex items-center justify-between rounded-2xl border bg-background p-3"><div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-full bg-gradient-to-br from-[#7952e8] to-[#ef785b] text-xs font-bold text-white">{instagramUsername.slice(0, 2).toUpperCase()}</span><div><p className="text-sm font-semibold">@{instagramUsername}</p><p className="text-[11px] text-emerald-600">Professional account · selected</p></div></div><Check className="size-4 text-emerald-500" /></div><Button variant="outline" onClick={connectInstagram} className="mt-2 h-9 w-full"><Plus /> Add another account</Button></div> : <div><Button onClick={connectInstagram} className="h-10 w-full bg-[#7952e8] hover:bg-[#6843d5]"><Link2 /> Connect with Meta</Button><p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{accountMessage}</p></div>}
             </section>
 
             <section className="rounded-3xl border bg-card p-5 shadow-[0_18px_45px_rgb(45_35_80/5%)]">

@@ -14,7 +14,16 @@ let doneRoot = process.env.POSTFLOW_DONE_ROOT ? resolve(process.env.POSTFLOW_DON
 const instagramAppId = process.env.INSTAGRAM_APP_ID || '';
 const instagramAppSecret = process.env.INSTAGRAM_APP_SECRET || '';
 const instagramRedirectUri = process.env.INSTAGRAM_REDIRECT_URI || `http://127.0.0.1:${PORT}/instagram/callback`;
-let instagramAccount = null;
+let instagramAccounts = [];
+let selectedInstagramAccountId = '';
+
+function publicInstagramAccount(account) {
+  return account && { id: account.id, username: account.username };
+}
+
+function selectedInstagramAccount() {
+  return instagramAccounts.find((account) => account.id === selectedInstagramAccountId) || instagramAccounts[0] || null;
+}
 
 function json(response, status, body) {
   response.writeHead(status, {
@@ -51,13 +60,30 @@ createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/instagram/status') {
-      return json(response, 200, { configured: Boolean(instagramAppId && instagramAppSecret), connected: Boolean(instagramAccount), account: instagramAccount && { id: instagramAccount.id, username: instagramAccount.username } });
+      const account = selectedInstagramAccount();
+      return json(response, 200, {
+        configured: Boolean(instagramAppId && instagramAppSecret),
+        connected: Boolean(account),
+        account: publicInstagramAccount(account),
+        accounts: instagramAccounts.map(publicInstagramAccount),
+      });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/instagram/select') {
+      const body = await readBody(request);
+      const account = instagramAccounts.find((candidate) => candidate.id === String(body.accountId || ''));
+      if (!account) return json(response, 404, { error: 'That Instagram account is not connected.' });
+      selectedInstagramAccountId = account.id;
+      return json(response, 200, { account: publicInstagramAccount(account) });
     }
 
     if (request.method === 'GET' && url.pathname === '/instagram/connect') {
-      if (!instagramAppId || !instagramAppSecret) return json(response, 400, { error: 'Add INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET before connecting.' });
+      if (!instagramAppId || !instagramAppSecret) {
+        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        return response.end('<!doctype html><meta charset="utf-8"><title>Meta setup needed</title><style>body{font:16px system-ui;background:#f8f6ff;color:#201d2c;display:grid;place-items:center;min-height:100vh;margin:0}.card{max-width:420px;background:white;padding:32px;border-radius:24px;box-shadow:0 20px 60px #2d23501a}code{background:#f1eff8;padding:2px 5px;border-radius:5px}</style><div class="card"><h1>Meta setup needed</h1><p>Add your Meta app credentials as <code>INSTAGRAM_APP_ID</code> and <code>INSTAGRAM_APP_SECRET</code>, then restart the Postflow local service.</p><p>Your Instagram password is entered only on Meta’s website and is never stored by Postflow.</p></div>');
+      }
       const authorize = new URL('https://www.instagram.com/oauth/authorize');
-      authorize.searchParams.set('enable_fb_login', '0');
+      authorize.searchParams.set('enable_fb_login', '1');
       authorize.searchParams.set('force_authentication', '1');
       authorize.searchParams.set('client_id', instagramAppId);
       authorize.searchParams.set('redirect_uri', instagramRedirectUri);
@@ -77,9 +103,11 @@ createServer(async (request, response) => {
       const profileResponse = await fetch(`https://graph.instagram.com/me?fields=user_id,username&access_token=${encodeURIComponent(token.access_token)}`);
       const profile = await profileResponse.json();
       if (!profileResponse.ok) return json(response, 502, { error: profile.error?.message || 'Could not load the Instagram profile.' });
-      instagramAccount = { id: String(profile.user_id || profile.id), username: profile.username, accessToken: token.access_token };
+      const instagramAccount = { id: String(profile.user_id || profile.id), username: profile.username, accessToken: token.access_token };
+      instagramAccounts = [...instagramAccounts.filter((account) => account.id !== instagramAccount.id), instagramAccount];
+      selectedInstagramAccountId = instagramAccount.id;
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return response.end('<!doctype html><meta charset="utf-8"><title>Instagram connected</title><style>body{font:16px system-ui;background:#f8f6ff;color:#201d2c;display:grid;place-items:center;min-height:100vh;margin:0}.card{background:white;padding:32px;border-radius:24px;box-shadow:0 20px 60px #2d23501a;text-align:center}</style><div class="card"><h1>Instagram connected</h1><p>You can close this window and return to Postflow.</p></div>');
+      return response.end(`<!doctype html><meta charset="utf-8"><title>Instagram connected</title><style>body{font:16px system-ui;background:#f8f6ff;color:#201d2c;display:grid;place-items:center;min-height:100vh;margin:0}.card{background:white;padding:32px;border-radius:24px;box-shadow:0 20px 60px #2d23501a;text-align:center}</style><div class="card"><h1>@${safePart(profile.username)} connected</h1><p>This window will close automatically.</p></div><script>window.opener?.postMessage({type:'postflow-instagram-connected'},'http://localhost:3000');setTimeout(()=>window.close(),900)</script>`);
     }
 
     if (request.method === 'POST' && url.pathname === '/configure') {
