@@ -97,13 +97,17 @@ createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/pick-folder') {
       if (process.platform !== 'win32') return json(response, 400, { error: 'The native folder picker is currently available on Windows.' });
-      const script = `Add-Type -AssemblyName System.Windows.Forms; $picker = New-Object System.Windows.Forms.FolderBrowserDialog; $picker.Description = 'Choose a folder for Postflow'; $picker.ShowNewFolderButton = $true; if ($picker.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($picker.SelectedPath) }`;
-      const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-STA', '-Command', script], { windowsHide: false });
-      const path = stdout.trim();
-      if (!path) return json(response, 200, { cancelled: true });
-      const info = await stat(path);
-      if (!info.isDirectory()) return json(response, 400, { error: 'The selected path is not a folder.' });
-      return json(response, 200, { path: resolve(path) });
+      try {
+        const script = `$shell = New-Object -ComObject Shell.Application; $folder = $shell.BrowseForFolder(0, 'Choose a folder for Postflow', 0, 0); if ($null -ne $folder) { [Console]::Out.Write($folder.Self.Path) }`;
+        const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-STA', '-Command', script], { windowsHide: true });
+        const path = stdout.trim();
+        if (!path) return json(response, 200, { cancelled: true });
+        const info = await stat(path);
+        if (!info.isDirectory()) return json(response, 400, { error: 'The selected path is not a folder.' });
+        return json(response, 200, { path: resolve(path) });
+      } catch {
+        return json(response, 500, { error: 'Windows could not open the folder chooser. Please type or paste the folder path instead.' });
+      }
     }
 
     if (request.method === 'GET' && url.pathname === '/scan') {
