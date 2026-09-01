@@ -1,12 +1,12 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, CalendarDays, Camera, Check, ChevronDown, CircleHelp, Clock3, GripVertical, ImagePlus, MoreHorizontal, Play, Plus, Send, Settings, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, CalendarDays, Camera, Check, ChevronDown, CircleHelp, Clock3, FolderCheck, FolderInput, GripVertical, ImagePlus, Link2, MoreHorizontal, Play, Plus, RefreshCw, Send, Settings, Sparkles, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
-type MediaItem = { id: number; name: string; src: string; type: 'Photo' | 'Video'; duration?: string };
+type MediaItem = { id: number | string; name: string; src: string; type: 'Photo' | 'Video'; duration?: string; path?: string };
 
 const sampleMedia: MediaItem[] = [
   { id: 1, name: 'Sunset walk.jpg', src: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=720&q=85', type: 'Photo' },
@@ -23,14 +23,18 @@ export default function Home() {
   const [times, setTimes] = useState(['8:00 AM', '10:00 AM', '12:00 PM']);
   const [caption, setCaption] = useState('A little moment from the week ✨\n\nTaking time to notice the good stuff. #everydaymagic #slowliving');
   const [saved, setSaved] = useState(false);
-  const [draggedId, setDraggedId] = useState<number | null>(null);
+  const [draggedId, setDraggedId] = useState<number | string | null>(null);
+  const [mediaRoot, setMediaRoot] = useState('C:\\Instagram\\READY');
+  const [doneRoot, setDoneRoot] = useState('C:\\Instagram\\READY\\DONE');
+  const [folderStatus, setFolderStatus] = useState('Local service not connected');
+  const [accountStatus, setAccountStatus] = useState<'missing' | 'ready'>('missing');
   const fileInput = useRef<HTMLInputElement>(null);
   const scheduled = useMemo(() => media.slice(0, 4).map((item, index) => ({ item, day: index < times.length ? 'Tue, Sep 1' : 'Thu, Sep 3', time: times[index % times.length] ?? '12:00 PM' })), [media, times]);
 
-  function move(id: number, direction: -1 | 1) {
+  function move(id: number | string, direction: -1 | 1) {
     setMedia((current) => { const index = current.findIndex((item) => item.id === id); const next = index + direction; if (index < 0 || next < 0 || next >= current.length) return current; const copy = [...current]; [copy[index], copy[next]] = [copy[next], copy[index]]; return copy; });
   }
-  function dropOn(targetId: number) {
+  function dropOn(targetId: number | string) {
     if (draggedId === null || draggedId === targetId) return;
     setMedia((current) => { const from = current.findIndex((item) => item.id === draggedId); const to = current.findIndex((item) => item.id === targetId); const copy = [...current]; const [picked] = copy.splice(from, 1); copy.splice(to, 0, picked); return copy; }); setDraggedId(null);
   }
@@ -39,12 +43,30 @@ export default function Home() {
     const added = Array.from(files).map((file, index) => ({ id: Date.now() + index, name: file.name, src: URL.createObjectURL(file), type: file.type.startsWith('video/') ? 'Video' as const : 'Photo' as const })); setMedia((current) => [...current, ...added]);
   }
 
+  async function scanFolder() {
+    try {
+      setFolderStatus('Connecting to local folder service…');
+      const configured = await fetch('http://127.0.0.1:3030/configure', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mediaRoot, doneRoot }) });
+      const configuredBody = await configured.json();
+      if (!configured.ok) throw new Error(configuredBody.error);
+      const response = await fetch('http://127.0.0.1:3030/scan');
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setMedia(body.files);
+      setMediaRoot(body.mediaRoot);
+      setDoneRoot(body.doneRoot);
+      setFolderStatus(`${body.files.length} files loaded · DONE archive ready`);
+    } catch (error) {
+      setFolderStatus(error instanceof Error ? error.message : 'Could not connect to the local folder service.');
+    }
+  }
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-30 border-b border-border/70 bg-background/90 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-[1500px] items-center justify-between px-5 lg:px-8">
           <div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><Sparkles className="size-4" /></div><div><p className="font-semibold leading-none tracking-tight">Postflow</p><p className="mt-1 text-[11px] text-muted-foreground">Instagram scheduler</p></div></div>
-          <div className="flex items-center gap-2"><button className="hidden items-center gap-2 rounded-full border bg-card px-3 py-2 text-xs font-medium sm:flex"><span className="size-2 rounded-full bg-emerald-500" />@yourstudio <ChevronDown className="size-3" /></button><Button variant="ghost" size="icon" aria-label="Help"><CircleHelp /></Button><Button variant="ghost" size="icon" aria-label="Settings"><Settings /></Button></div>
+          <div className="flex items-center gap-2"><button className="hidden items-center gap-2 rounded-full border bg-card px-3 py-2 text-xs font-medium sm:flex"><span className={`size-2 rounded-full ${accountStatus === 'ready' ? 'bg-emerald-500' : 'bg-amber-400'}`} />{accountStatus === 'ready' ? '@yourstudio' : 'Instagram not connected'} <ChevronDown className="size-3" /></button><Button variant="ghost" size="icon" aria-label="Help"><CircleHelp /></Button><Button variant="ghost" size="icon" aria-label="Settings"><Settings /></Button></div>
         </div>
       </header>
       <div className="mx-auto max-w-[1500px] px-5 py-7 lg:px-8">
@@ -59,6 +81,18 @@ export default function Home() {
             </div>
           </section>
           <aside className="space-y-5">
+            <section className="rounded-3xl border bg-card p-5 shadow-[0_18px_45px_rgb(45_35_80/5%)]">
+              <div className="mb-4 flex items-center gap-3"><span className="grid size-9 place-items-center rounded-xl bg-[#eee9ff] text-[#6942d0]"><Camera className="size-4" /></span><div><h2 className="font-semibold">Instagram account</h2><p className="text-xs text-muted-foreground">Choose where this queue will publish</p></div></div>
+              {accountStatus === 'ready' ? <div className="flex items-center justify-between rounded-2xl border bg-background p-3"><div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-full bg-gradient-to-br from-[#7952e8] to-[#ef785b] text-xs font-bold text-white">YS</span><div><p className="text-sm font-semibold">@yourstudio</p><p className="text-[11px] text-emerald-600">Professional account · selected</p></div></div><Check className="size-4 text-emerald-500" /></div> : <div><Button onClick={() => window.alert('Meta App credentials are required before the real Instagram authorization can begin.')} className="h-10 w-full bg-[#7952e8] hover:bg-[#6843d5]"><Link2 /> Connect with Meta</Button><p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">The real account name appears here after Meta credentials and authorization are configured.</p></div>}
+            </section>
+
+            <section className="rounded-3xl border bg-card p-5 shadow-[0_18px_45px_rgb(45_35_80/5%)]">
+              <div className="mb-4 flex items-center gap-3"><span className="grid size-9 place-items-center rounded-xl bg-[#eaf7f1] text-[#25865e]"><FolderInput className="size-4" /></span><div><h2 className="font-semibold">Local folder automation</h2><p className="text-xs text-muted-foreground">Load files and archive successful posts</p></div></div>
+              <div className="space-y-3"><label className="block text-xs font-semibold text-muted-foreground">Source folder<Input value={mediaRoot} onChange={(event) => setMediaRoot(event.target.value)} className="mt-1.5 h-9 bg-background font-mono text-xs" /></label><label className="block text-xs font-semibold text-muted-foreground">DONE folder<Input value={doneRoot} onChange={(event) => setDoneRoot(event.target.value)} className="mt-1.5 h-9 bg-background font-mono text-xs" /></label></div>
+              <Button variant="outline" onClick={scanFolder} className="mt-4 h-9 w-full"><RefreshCw /> Connect & scan folder</Button>
+              <div className="mt-3 flex items-start gap-2 rounded-xl bg-secondary/65 p-3"><FolderCheck className="mt-0.5 size-4 shrink-0 text-[#25865e]" /><div><p className="text-xs font-semibold">{folderStatus}</p><p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">After a successful post: <span className="font-mono">YYYYMMDD_HHMM_account_001_name.jpg</span>. Failed posts stay in the source folder.</p></div></div>
+            </section>
+
             <section className="rounded-3xl border bg-card p-5 shadow-[0_18px_45px_rgb(45_35_80/5%)]"><div className="mb-5 flex items-center gap-3"><span className="grid size-9 place-items-center rounded-xl bg-[#fff0ea] text-[#e36a43]"><CalendarDays className="size-4" /></span><div><h2 className="font-semibold">Posting schedule</h2><p className="text-xs text-muted-foreground">America / New York</p></div></div><label className="text-xs font-semibold text-muted-foreground">Post every</label><div className="mt-2 flex items-center gap-2"><Input type="number" min={1} max={30} value={frequency} onChange={(event) => setFrequency(Number(event.target.value))} className="h-10 w-20 bg-background text-center font-semibold" /><span className="text-sm font-medium">days</span></div><div className="my-5 h-px bg-border" /><div className="mb-2 flex items-center justify-between"><label className="text-xs font-semibold text-muted-foreground">Times on posting days</label><button onClick={() => setTimes((current) => [...current, '3:00 PM'])} className="flex items-center gap-1 text-xs font-semibold text-[#6942d0]"><Plus className="size-3" /> Add time</button></div><div className="space-y-2">{times.map((time, index) => <div key={`${time}-${index}`} className="flex items-center gap-2"><Clock3 className="size-4 text-muted-foreground" /><Input value={time} onChange={(event) => setTimes((current) => current.map((value, i) => i === index ? event.target.value : value))} className="h-9 bg-background" /><Button variant="ghost" size="icon-sm" aria-label={`Remove ${time}`} onClick={() => setTimes((current) => current.filter((_, i) => i !== index))}><Trash2 /></Button></div>)}</div><p className="mt-4 rounded-xl bg-secondary/65 px-3 py-2 text-xs leading-relaxed text-muted-foreground"><strong className="text-foreground">{times.length} posts</strong> every {frequency} days · Next run Tuesday</p></section>
             <section className="rounded-3xl border bg-card p-5 shadow-[0_18px_45px_rgb(45_35_80/5%)]"><div className="mb-3 flex items-center justify-between"><label className="text-sm font-semibold">Caption for every post</label><span className="text-[11px] text-muted-foreground">{caption.length}/2,200</span></div><Textarea value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={2200} className="min-h-32 resize-none bg-background leading-relaxed" /><button className="mt-3 flex items-center gap-2 text-xs font-semibold text-[#6942d0]"><Sparkles className="size-3" /> Polish caption</button></section>
           </aside>
