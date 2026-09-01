@@ -1,0 +1,70 @@
+'use client';
+
+import { useMemo, useRef, useState } from 'react';
+import { ArrowDown, ArrowUp, CalendarDays, Camera, Check, ChevronDown, CircleHelp, Clock3, GripVertical, ImagePlus, MoreHorizontal, Play, Plus, Send, Settings, Sparkles, Trash2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+
+type MediaItem = { id: number; name: string; src: string; type: 'Photo' | 'Video'; duration?: string };
+
+const sampleMedia: MediaItem[] = [
+  { id: 1, name: 'Sunset walk.jpg', src: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=720&q=85', type: 'Photo' },
+  { id: 2, name: 'Morning coffee.jpg', src: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=720&q=85', type: 'Photo' },
+  { id: 3, name: 'Studio details.mp4', src: 'https://images.unsplash.com/photo-1497215842964-222b430dc094?auto=format&fit=crop&w=720&q=85', type: 'Video', duration: '0:18' },
+  { id: 4, name: 'Weekend market.jpg', src: 'https://images.unsplash.com/photo-1488459716781-31db52582fe9?auto=format&fit=crop&w=720&q=85', type: 'Photo' },
+  { id: 5, name: 'Golden hour.jpg', src: 'https://images.unsplash.com/photo-1470252649378-9c29740c9fa8?auto=format&fit=crop&w=720&q=85', type: 'Photo' },
+  { id: 6, name: 'City notes.jpg', src: 'https://images.unsplash.com/photo-1449824913935-59a10b8d2000?auto=format&fit=crop&w=720&q=85', type: 'Photo' },
+];
+
+export default function Home() {
+  const [media, setMedia] = useState(sampleMedia);
+  const [frequency, setFrequency] = useState(2);
+  const [times, setTimes] = useState(['8:00 AM', '10:00 AM', '12:00 PM']);
+  const [caption, setCaption] = useState('A little moment from the week ✨\n\nTaking time to notice the good stuff. #everydaymagic #slowliving');
+  const [saved, setSaved] = useState(false);
+  const [draggedId, setDraggedId] = useState<number | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const scheduled = useMemo(() => media.slice(0, 4).map((item, index) => ({ item, day: index < times.length ? 'Tue, Sep 1' : 'Thu, Sep 3', time: times[index % times.length] ?? '12:00 PM' })), [media, times]);
+
+  function move(id: number, direction: -1 | 1) {
+    setMedia((current) => { const index = current.findIndex((item) => item.id === id); const next = index + direction; if (index < 0 || next < 0 || next >= current.length) return current; const copy = [...current]; [copy[index], copy[next]] = [copy[next], copy[index]]; return copy; });
+  }
+  function dropOn(targetId: number) {
+    if (draggedId === null || draggedId === targetId) return;
+    setMedia((current) => { const from = current.findIndex((item) => item.id === draggedId); const to = current.findIndex((item) => item.id === targetId); const copy = [...current]; const [picked] = copy.splice(from, 1); copy.splice(to, 0, picked); return copy; }); setDraggedId(null);
+  }
+  function addFiles(files: FileList | null) {
+    if (!files?.length) return;
+    const added = Array.from(files).map((file, index) => ({ id: Date.now() + index, name: file.name, src: URL.createObjectURL(file), type: file.type.startsWith('video/') ? 'Video' as const : 'Photo' as const })); setMedia((current) => [...current, ...added]);
+  }
+
+  return (
+    <main className="min-h-screen bg-background text-foreground">
+      <header className="sticky top-0 z-30 border-b border-border/70 bg-background/90 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-[1500px] items-center justify-between px-5 lg:px-8">
+          <div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><Sparkles className="size-4" /></div><div><p className="font-semibold leading-none tracking-tight">Postflow</p><p className="mt-1 text-[11px] text-muted-foreground">Instagram scheduler</p></div></div>
+          <div className="flex items-center gap-2"><button className="hidden items-center gap-2 rounded-full border bg-card px-3 py-2 text-xs font-medium sm:flex"><span className="size-2 rounded-full bg-emerald-500" />@yourstudio <ChevronDown className="size-3" /></button><Button variant="ghost" size="icon" aria-label="Help"><CircleHelp /></Button><Button variant="ghost" size="icon" aria-label="Settings"><Settings /></Button></div>
+        </div>
+      </header>
+      <div className="mx-auto max-w-[1500px] px-5 py-7 lg:px-8">
+        <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-semibold uppercase tracking-[.18em] text-primary">New schedule</p><h1 className="text-3xl font-semibold tracking-[-.04em] sm:text-4xl">Shape your posting rhythm.</h1><p className="mt-2 max-w-xl text-sm text-muted-foreground">Arrange your media, set the pace, then let your queue roll.</p></div><div className="flex gap-2"><Button variant="outline" className="h-10 px-4">Save draft</Button><Button className="h-10 bg-[#7952e8] px-4 hover:bg-[#6843d5]" onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 2400); }}>{saved ? <><Check /> Schedule ready</> : <><Send /> Activate schedule</>}</Button></div></div>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(330px,.65fr)]">
+          <section className="rounded-3xl border bg-card p-4 shadow-[0_18px_45px_rgb(45_35_80/5%)] sm:p-6">
+            <div className="mb-5 flex items-center justify-between"><div><h2 className="text-lg font-semibold tracking-tight">Media queue</h2><p className="mt-1 text-sm text-muted-foreground">Drag cards or use the arrows to choose what posts first.</p></div><span className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold">{media.length} items</span></div>
+            <input ref={fileInput} className="hidden" type="file" multiple accept="image/jpeg,video/*" onChange={(event) => addFiles(event.target.files)} />
+            <button onClick={() => fileInput.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); addFiles(event.dataTransfer.files); }} className="mb-5 flex w-full items-center justify-center gap-3 rounded-2xl border border-dashed border-[#bdb2e7] bg-[#f8f6ff] px-4 py-4 text-sm font-medium text-[#6942d0] transition hover:border-[#7952e8] hover:bg-[#f2efff]"><span className="grid size-9 place-items-center rounded-xl bg-white shadow-sm"><ImagePlus className="size-4" /></span>Add photos or videos <span className="hidden font-normal text-muted-foreground sm:inline">· JPEG, MP4 or MOV</span></button>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {media.map((item, index) => <article key={item.id} draggable onDragStart={() => setDraggedId(item.id)} onDragOver={(event) => event.preventDefault()} onDrop={() => dropOn(item.id)} className="group relative overflow-hidden rounded-2xl border bg-background transition hover:-translate-y-0.5 hover:shadow-lg"><div className="relative aspect-[4/5] overflow-hidden bg-muted"><img src={item.src} alt="" className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]" /><div className="absolute inset-x-0 top-0 flex items-center justify-between p-2"><span className="grid size-7 place-items-center rounded-lg bg-black/55 text-xs font-bold text-white backdrop-blur">{index + 1}</span><button className="grid size-7 place-items-center rounded-lg bg-black/45 text-white opacity-0 backdrop-blur transition group-hover:opacity-100" aria-label={`More options for ${item.name}`}><MoreHorizontal className="size-4" /></button></div>{item.type === 'Video' && <span className="absolute bottom-2 left-2 flex items-center gap-1 rounded-full bg-black/55 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur"><Play className="size-3 fill-current" /> {item.duration ?? 'Video'}</span>}</div><div className="flex items-center gap-1 p-2"><GripVertical className="size-4 shrink-0 cursor-grab text-muted-foreground" /><p className="min-w-0 flex-1 truncate text-xs font-medium">{item.name}</p><button onClick={() => move(item.id, -1)} disabled={index === 0} className="rounded p-1 text-muted-foreground hover:bg-muted disabled:opacity-20" aria-label="Move earlier"><ArrowUp className="size-3" /></button><button onClick={() => move(item.id, 1)} disabled={index === media.length - 1} className="rounded p-1 text-muted-foreground hover:bg-muted disabled:opacity-20" aria-label="Move later"><ArrowDown className="size-3" /></button></div></article>)}
+            </div>
+          </section>
+          <aside className="space-y-5">
+            <section className="rounded-3xl border bg-card p-5 shadow-[0_18px_45px_rgb(45_35_80/5%)]"><div className="mb-5 flex items-center gap-3"><span className="grid size-9 place-items-center rounded-xl bg-[#fff0ea] text-[#e36a43]"><CalendarDays className="size-4" /></span><div><h2 className="font-semibold">Posting schedule</h2><p className="text-xs text-muted-foreground">America / New York</p></div></div><label className="text-xs font-semibold text-muted-foreground">Post every</label><div className="mt-2 flex items-center gap-2"><Input type="number" min={1} max={30} value={frequency} onChange={(event) => setFrequency(Number(event.target.value))} className="h-10 w-20 bg-background text-center font-semibold" /><span className="text-sm font-medium">days</span></div><div className="my-5 h-px bg-border" /><div className="mb-2 flex items-center justify-between"><label className="text-xs font-semibold text-muted-foreground">Times on posting days</label><button onClick={() => setTimes((current) => [...current, '3:00 PM'])} className="flex items-center gap-1 text-xs font-semibold text-[#6942d0]"><Plus className="size-3" /> Add time</button></div><div className="space-y-2">{times.map((time, index) => <div key={`${time}-${index}`} className="flex items-center gap-2"><Clock3 className="size-4 text-muted-foreground" /><Input value={time} onChange={(event) => setTimes((current) => current.map((value, i) => i === index ? event.target.value : value))} className="h-9 bg-background" /><Button variant="ghost" size="icon-sm" aria-label={`Remove ${time}`} onClick={() => setTimes((current) => current.filter((_, i) => i !== index))}><Trash2 /></Button></div>)}</div><p className="mt-4 rounded-xl bg-secondary/65 px-3 py-2 text-xs leading-relaxed text-muted-foreground"><strong className="text-foreground">{times.length} posts</strong> every {frequency} days · Next run Tuesday</p></section>
+            <section className="rounded-3xl border bg-card p-5 shadow-[0_18px_45px_rgb(45_35_80/5%)]"><div className="mb-3 flex items-center justify-between"><label className="text-sm font-semibold">Caption for every post</label><span className="text-[11px] text-muted-foreground">{caption.length}/2,200</span></div><Textarea value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={2200} className="min-h-32 resize-none bg-background leading-relaxed" /><button className="mt-3 flex items-center gap-2 text-xs font-semibold text-[#6942d0]"><Sparkles className="size-3" /> Polish caption</button></section>
+          </aside>
+        </div>
+        <section className="mt-6 rounded-3xl border bg-[#201d2c] p-5 text-white sm:p-6"><div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h2 className="font-semibold">Coming up</h2><p className="mt-1 text-xs text-white/55">A preview of your next four posts</p></div><div className="flex items-center gap-2 text-xs text-white/65"><Camera className="size-4" /> Publishing to <strong className="text-white">@yourstudio</strong></div></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{scheduled.map(({ item, day, time }, index) => <div key={item.id} className="flex items-center gap-3 rounded-2xl bg-white/[.08] p-3"><img src={item.src} alt="" className="size-14 rounded-xl object-cover" /><div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wider text-[#bca9ff]">Post {index + 1}</p><p className="mt-1 truncate text-sm font-medium">{item.name}</p><p className="mt-1 text-[11px] text-white/55">{day} · {time}</p></div></div>)}</div></section>
+      </div>
+    </main>
+  );
+}
