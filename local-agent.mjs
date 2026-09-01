@@ -7,6 +7,10 @@ const PORT = Number(process.env.POSTFLOW_LOCAL_PORT || 3030);
 const allowedExtensions = new Set(['.jpg', '.jpeg', '.mp4', '.mov']);
 let mediaRoot = process.env.POSTFLOW_MEDIA_ROOT ? resolve(process.env.POSTFLOW_MEDIA_ROOT) : '';
 let doneRoot = process.env.POSTFLOW_DONE_ROOT ? resolve(process.env.POSTFLOW_DONE_ROOT) : '';
+const instagramAppId = process.env.INSTAGRAM_APP_ID || '';
+const instagramAppSecret = process.env.INSTAGRAM_APP_SECRET || '';
+const instagramRedirectUri = process.env.INSTAGRAM_REDIRECT_URI || `http://127.0.0.1:${PORT}/instagram/callback`;
+let instagramAccount = null;
 
 function json(response, status, body) {
   response.writeHead(status, {
@@ -40,6 +44,38 @@ createServer(async (request, response) => {
 
     if (request.method === 'GET' && url.pathname === '/health') {
       return json(response, 200, { ok: true, mediaRoot, doneRoot: doneRoot || (mediaRoot ? join(mediaRoot, 'DONE') : '') });
+    }
+
+    if (request.method === 'GET' && url.pathname === '/instagram/status') {
+      return json(response, 200, { configured: Boolean(instagramAppId && instagramAppSecret), connected: Boolean(instagramAccount), account: instagramAccount && { id: instagramAccount.id, username: instagramAccount.username } });
+    }
+
+    if (request.method === 'GET' && url.pathname === '/instagram/connect') {
+      if (!instagramAppId || !instagramAppSecret) return json(response, 400, { error: 'Add INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET before connecting.' });
+      const authorize = new URL('https://www.instagram.com/oauth/authorize');
+      authorize.searchParams.set('enable_fb_login', '0');
+      authorize.searchParams.set('force_authentication', '1');
+      authorize.searchParams.set('client_id', instagramAppId);
+      authorize.searchParams.set('redirect_uri', instagramRedirectUri);
+      authorize.searchParams.set('response_type', 'code');
+      authorize.searchParams.set('scope', 'instagram_business_basic,instagram_business_content_publish');
+      response.writeHead(302, { location: authorize.toString() });
+      return response.end();
+    }
+
+    if (request.method === 'GET' && url.pathname === '/instagram/callback') {
+      const code = url.searchParams.get('code');
+      if (!code) return json(response, 400, { error: url.searchParams.get('error_description') || 'Instagram did not return an authorization code.' });
+      const form = new URLSearchParams({ client_id: instagramAppId, client_secret: instagramAppSecret, grant_type: 'authorization_code', redirect_uri: instagramRedirectUri, code });
+      const tokenResponse = await fetch('https://api.instagram.com/oauth/access_token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form });
+      const token = await tokenResponse.json();
+      if (!tokenResponse.ok) return json(response, 502, { error: token.error_message || 'Instagram token exchange failed.' });
+      const profileResponse = await fetch(`https://graph.instagram.com/me?fields=user_id,username&access_token=${encodeURIComponent(token.access_token)}`);
+      const profile = await profileResponse.json();
+      if (!profileResponse.ok) return json(response, 502, { error: profile.error?.message || 'Could not load the Instagram profile.' });
+      instagramAccount = { id: String(profile.user_id || profile.id), username: profile.username, accessToken: token.access_token };
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      return response.end('<!doctype html><meta charset="utf-8"><title>Instagram connected</title><style>body{font:16px system-ui;background:#f8f6ff;color:#201d2c;display:grid;place-items:center;min-height:100vh;margin:0}.card{background:white;padding:32px;border-radius:24px;box-shadow:0 20px 60px #2d23501a;text-align:center}</style><div class="card"><h1>Instagram connected</h1><p>You can close this window and return to Postflow.</p></div>');
     }
 
     if (request.method === 'POST' && url.pathname === '/configure') {
