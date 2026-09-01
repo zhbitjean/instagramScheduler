@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, CalendarDays, Camera, Check, ChevronDown, CircleHelp, Clock3, FolderCheck, FolderInput, GripVertical, ImagePlus, Link2, MoreHorizontal, Play, Plus, RefreshCw, Send, Settings, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, CalendarDays, Camera, Check, ChevronDown, CircleHelp, Clock3, FolderCheck, FolderInput, FolderOpen, GripVertical, ImagePlus, Link2, MoreHorizontal, Play, Plus, RefreshCw, Send, Settings, Sparkles, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -65,6 +65,25 @@ export default function Home() {
     }
   }
 
+  async function chooseFolder(kind: 'source' | 'done') {
+    try {
+      setFolderStatus('Opening Windows folder chooser…');
+      const response = await fetch('http://127.0.0.1:3030/pick-folder', { method: 'POST' });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      if (body.cancelled) { setFolderStatus('Folder selection cancelled.'); return; }
+      if (kind === 'source') {
+        setMediaRoot(body.path);
+        setDoneRoot(`${body.path}\\DONE`);
+      } else {
+        setDoneRoot(body.path);
+      }
+      setFolderStatus('Folder selected. Click Connect & scan folder.');
+    } catch (error) {
+      setFolderStatus(error instanceof Error ? error.message : 'Could not open the folder chooser.');
+    }
+  }
+
   function toggleSelected(id: number | string) {
     setSelected((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   }
@@ -116,7 +135,7 @@ export default function Home() {
 
             <section className="rounded-3xl border bg-card p-5 shadow-[0_18px_45px_rgb(45_35_80/5%)]">
               <div className="mb-4 flex items-center gap-3"><span className="grid size-9 place-items-center rounded-xl bg-[#eaf7f1] text-[#25865e]"><FolderInput className="size-4" /></span><div><h2 className="font-semibold">Local folder automation</h2><p className="text-xs text-muted-foreground">Load files and archive successful posts</p></div></div>
-              <div className="space-y-3"><label className="block text-xs font-semibold text-muted-foreground">Source folder<Input value={mediaRoot} onChange={(event) => setMediaRoot(event.target.value)} className="mt-1.5 h-9 bg-background font-mono text-xs" /></label><label className="block text-xs font-semibold text-muted-foreground">DONE folder<Input value={doneRoot} onChange={(event) => setDoneRoot(event.target.value)} className="mt-1.5 h-9 bg-background font-mono text-xs" /></label></div>
+              <div className="space-y-3"><label className="block text-xs font-semibold text-muted-foreground">Source folder<div className="relative mt-1.5"><Input value={mediaRoot} onChange={(event) => setMediaRoot(event.target.value)} className="h-9 bg-background pr-10 font-mono text-xs" /><button type="button" onClick={() => chooseFolder('source')} className="absolute right-1 top-1 grid size-7 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-[#6942d0]" aria-label="Choose source folder" title="Choose source folder"><FolderOpen className="size-4" /></button></div></label><label className="block text-xs font-semibold text-muted-foreground">DONE folder<div className="relative mt-1.5"><Input value={doneRoot} onChange={(event) => setDoneRoot(event.target.value)} className="h-9 bg-background pr-10 font-mono text-xs" /><button type="button" onClick={() => chooseFolder('done')} className="absolute right-1 top-1 grid size-7 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-[#6942d0]" aria-label="Choose DONE folder" title="Choose DONE folder"><FolderOpen className="size-4" /></button></div></label></div>
               <Button variant="outline" onClick={scanFolder} className="mt-4 h-9 w-full"><RefreshCw /> Connect & scan folder</Button>
               <div className="mt-3 flex items-start gap-2 rounded-xl bg-secondary/65 p-3"><FolderCheck className="mt-0.5 size-4 shrink-0 text-[#25865e]" /><div><p className="text-xs font-semibold">{folderStatus}</p><p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">After a successful post: <span className="font-mono">YYYYMMDD_HHMM_account_001_name.jpg</span>. Failed posts stay in the source folder.</p></div></div>
             </section>

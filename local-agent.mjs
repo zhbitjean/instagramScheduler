@@ -2,6 +2,10 @@ import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { mkdir, readdir, rename, stat } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 const PORT = Number(process.env.POSTFLOW_LOCAL_PORT || 3030);
 const allowedExtensions = new Set(['.jpg', '.jpeg', '.mp4', '.mov']);
@@ -89,6 +93,17 @@ createServer(async (request, response) => {
       doneRoot = nextDoneRoot;
       await mkdir(doneRoot, { recursive: true });
       return json(response, 200, { ok: true, mediaRoot, doneRoot });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/pick-folder') {
+      if (process.platform !== 'win32') return json(response, 400, { error: 'The native folder picker is currently available on Windows.' });
+      const script = `Add-Type -AssemblyName System.Windows.Forms; $picker = New-Object System.Windows.Forms.FolderBrowserDialog; $picker.Description = 'Choose a folder for Postflow'; $picker.ShowNewFolderButton = $true; if ($picker.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($picker.SelectedPath) }`;
+      const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-STA', '-Command', script], { windowsHide: false });
+      const path = stdout.trim();
+      if (!path) return json(response, 200, { cancelled: true });
+      const info = await stat(path);
+      if (!info.isDirectory()) return json(response, 400, { error: 'The selected path is not a folder.' });
+      return json(response, 200, { path: resolve(path) });
     }
 
     if (request.method === 'GET' && url.pathname === '/scan') {
