@@ -33,6 +33,10 @@ export default function Home() {
   const [instagramUsername, setInstagramUsername] = useState('');
   const [instagramAccounts, setInstagramAccounts] = useState<InstagramAccount[]>([]);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [metaSetupOpen, setMetaSetupOpen] = useState(false);
+  const [metaAppId, setMetaAppId] = useState('');
+  const [metaAppSecret, setMetaAppSecret] = useState('');
+  const [metaRedirectUri, setMetaRedirectUri] = useState('');
   const [selected, setSelected] = useState<Set<number | string>>(new Set());
   const [menuId, setMenuId] = useState<number | string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -102,6 +106,7 @@ export default function Home() {
       const response = await fetch('http://127.0.0.1:3030/instagram/status');
       const body = await response.json();
       setInstagramAccounts(body.accounts || []);
+      setMetaRedirectUri(body.redirectUri || '');
       if (body.connected) { setAccountStatus('ready'); setInstagramUsername(body.account.username); setAccountMessage('Professional account selected.'); }
       else { setAccountStatus('missing'); setInstagramUsername(''); setAccountMessage(body.configured ? 'Choose Add another account to sign in with Meta.' : 'Meta app setup is required before your first sign-in.'); }
     } catch {
@@ -109,7 +114,13 @@ export default function Home() {
     }
   }
 
-  function connectInstagram() {
+  async function connectInstagram() {
+    try {
+      const statusResponse = await fetch('http://127.0.0.1:3030/instagram/status');
+      const status = await statusResponse.json();
+      setMetaRedirectUri(status.redirectUri || '');
+      if (!status.configured) { setMetaSetupOpen(true); setAccountMenuOpen(false); return; }
+    } catch { setAccountMessage('Start Postflow with start-postflow.ps1 first.'); return; }
     const popup = window.open('http://127.0.0.1:3030/instagram/connect', 'instagram-connect', 'popup=yes,width=620,height=760');
     if (!popup) { setAccountMessage('Allow pop-ups for Postflow, then try again.'); return; }
     setAccountMessage('Sign in securely in the Meta window. Postflow never sees your password.');
@@ -128,6 +139,21 @@ export default function Home() {
         refreshInstagramStatus();
       }
     }, 800);
+  }
+
+  async function saveMetaSetup() {
+    try {
+      setAccountMessage('Saving Meta app settings locally…');
+      const response = await fetch('http://127.0.0.1:3030/instagram/configure-app', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appId: metaAppId, appSecret: metaAppSecret }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setMetaAppSecret('');
+      setMetaSetupOpen(false);
+      setAccountMessage('Meta app configured. Opening Instagram sign-in…');
+      await connectInstagram();
+    } catch (error) {
+      setAccountMessage(error instanceof Error ? error.message : 'Could not save the Meta app settings.');
+    }
   }
 
   async function selectInstagramAccount(account: InstagramAccount) {
@@ -162,7 +188,7 @@ export default function Home() {
           <aside className="space-y-5">
             <section className="rounded-3xl border bg-card p-5 shadow-[0_18px_45px_rgb(45_35_80/5%)]">
               <div className="mb-4 flex items-center gap-3"><span className="grid size-9 place-items-center rounded-xl bg-[#eee9ff] text-[#6942d0]"><Camera className="size-4" /></span><div><h2 className="font-semibold">Instagram account</h2><p className="text-xs text-muted-foreground">Choose where this queue will publish</p></div></div>
-              {accountStatus === 'ready' ? <div><div className="flex items-center justify-between rounded-2xl border bg-background p-3"><div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-full bg-gradient-to-br from-[#7952e8] to-[#ef785b] text-xs font-bold text-white">{instagramUsername.slice(0, 2).toUpperCase()}</span><div><p className="text-sm font-semibold">@{instagramUsername}</p><p className="text-[11px] text-emerald-600">Professional account · selected</p></div></div><Check className="size-4 text-emerald-500" /></div><Button variant="outline" onClick={connectInstagram} className="mt-2 h-9 w-full"><Plus /> Add another account</Button></div> : <div><Button onClick={connectInstagram} className="h-10 w-full bg-[#7952e8] hover:bg-[#6843d5]"><Link2 /> Connect with Meta</Button><p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{accountMessage}</p></div>}
+              {metaSetupOpen ? <div className="space-y-3 rounded-2xl border bg-background p-3"><div><p className="text-sm font-semibold">One-time Meta app setup</p><p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">These developer credentials stay on this computer. Your Instagram password will be entered only in Meta’s popup.</p></div><div><label className="mb-1 block text-[11px] font-semibold">Instagram app ID</label><Input value={metaAppId} onChange={(event) => setMetaAppId(event.target.value)} inputMode="numeric" placeholder="Numeric app ID from Meta" /></div><div><label className="mb-1 block text-[11px] font-semibold">Instagram app secret</label><Input value={metaAppSecret} onChange={(event) => setMetaAppSecret(event.target.value)} type="password" placeholder="Stored locally" /></div><div><label className="mb-1 block text-[11px] font-semibold">OAuth redirect URL</label><div className="flex gap-2"><Input value={metaRedirectUri} readOnly className="text-[11px]" /><Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(metaRedirectUri)}>Copy</Button></div><p className="mt-1 text-[10px] text-muted-foreground">Save this exact URL in Meta’s Instagram business login settings first.</p></div><div className="flex gap-2"><Button variant="outline" className="flex-1" onClick={() => setMetaSetupOpen(false)}>Cancel</Button><Button className="flex-1 bg-[#7952e8] hover:bg-[#6843d5]" onClick={saveMetaSetup}>Save & sign in</Button></div><p className="text-[11px] text-muted-foreground">{accountMessage}</p></div> : accountStatus === 'ready' ? <div><div className="flex items-center justify-between rounded-2xl border bg-background p-3"><div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded-full bg-gradient-to-br from-[#7952e8] to-[#ef785b] text-xs font-bold text-white">{instagramUsername.slice(0, 2).toUpperCase()}</span><div><p className="text-sm font-semibold">@{instagramUsername}</p><p className="text-[11px] text-emerald-600">Professional account · selected</p></div></div><Check className="size-4 text-emerald-500" /></div><Button variant="outline" onClick={connectInstagram} className="mt-2 h-9 w-full"><Plus /> Add another account</Button></div> : <div><Button onClick={connectInstagram} className="h-10 w-full bg-[#7952e8] hover:bg-[#6843d5]"><Link2 /> Connect with Meta</Button><p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">{accountMessage}</p></div>}
             </section>
 
             <section className="rounded-3xl border bg-card p-5 shadow-[0_18px_45px_rgb(45_35_80/5%)]">

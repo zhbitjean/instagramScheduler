@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
-import { mkdir, readdir, rename, stat } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -12,8 +12,11 @@ const OAUTH_CALLBACK_PORT = Number(process.env.POSTFLOW_OAUTH_CALLBACK_PORT || 3
 const allowedExtensions = new Set(['.jpg', '.jpeg', '.mp4', '.mov']);
 let mediaRoot = process.env.POSTFLOW_MEDIA_ROOT ? resolve(process.env.POSTFLOW_MEDIA_ROOT) : '';
 let doneRoot = process.env.POSTFLOW_DONE_ROOT ? resolve(process.env.POSTFLOW_DONE_ROOT) : '';
-const instagramAppId = process.env.INSTAGRAM_APP_ID || '';
-const instagramAppSecret = process.env.INSTAGRAM_APP_SECRET || '';
+const localConfigPath = join(process.cwd(), '.postflow-config.json');
+let savedConfig = {};
+try { savedConfig = JSON.parse(await readFile(localConfigPath, 'utf8')); } catch {}
+let instagramAppId = process.env.INSTAGRAM_APP_ID || savedConfig.instagramAppId || '';
+let instagramAppSecret = process.env.INSTAGRAM_APP_SECRET || savedConfig.instagramAppSecret || '';
 const instagramRedirectUri = process.env.INSTAGRAM_REDIRECT_URI || `http://127.0.0.1:${PORT}/instagram/callback`;
 let instagramAccounts = [];
 let selectedInstagramAccountId = '';
@@ -84,7 +87,20 @@ createServer(async (request, response) => {
         connected: Boolean(account),
         account: publicInstagramAccount(account),
         accounts: instagramAccounts.map(publicInstagramAccount),
+        redirectUri: instagramRedirectUri,
       });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/instagram/configure-app') {
+      const body = await readBody(request);
+      const appId = String(body.appId || '').trim();
+      const appSecret = String(body.appSecret || '').trim();
+      if (!/^\d{8,30}$/.test(appId)) return json(response, 400, { error: 'Enter the numeric Instagram app ID from Meta.' });
+      if (appSecret.length < 8) return json(response, 400, { error: 'Enter the Instagram app secret from Meta.' });
+      instagramAppId = appId;
+      instagramAppSecret = appSecret;
+      await writeFile(localConfigPath, JSON.stringify({ instagramAppId, instagramAppSecret }, null, 2), { encoding: 'utf8', mode: 0o600 });
+      return json(response, 200, { ok: true, redirectUri: instagramRedirectUri });
     }
 
     if (request.method === 'POST' && url.pathname === '/instagram/select') {

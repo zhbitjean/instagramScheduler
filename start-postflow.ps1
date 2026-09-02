@@ -13,16 +13,7 @@ if (-not (Test-Path -LiteralPath $cloudflared)) {
   throw 'Cloudflare Tunnel is not installed. Install Cloudflare.cloudflared with winget first.'
 }
 
-$appId = Read-Host 'Instagram app ID'
-$secretValue = Read-Host 'Instagram app secret (input is hidden)' -AsSecureString
-$secretPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secretValue)
-
 try {
-  $appSecret = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($secretPointer)
-  if ([string]::IsNullOrWhiteSpace($appId) -or [string]::IsNullOrWhiteSpace($appSecret)) {
-    throw 'Instagram app ID and app secret are required.'
-  }
-
   if (Test-Path -LiteralPath $tunnelLog) { Remove-Item -LiteralPath $tunnelLog }
   if (Test-Path -LiteralPath $tunnelOutput) { Remove-Item -LiteralPath $tunnelOutput }
   $tunnelProcess = Start-Process -FilePath $cloudflared -ArgumentList @('tunnel', '--url', "http://127.0.0.1:$oauthPort", '--no-autoupdate') -RedirectStandardError $tunnelLog -RedirectStandardOutput $tunnelOutput -WindowStyle Hidden -PassThru
@@ -40,17 +31,15 @@ try {
 
   $callbackUrl = "$tunnelUrl/instagram/callback"
   Set-Clipboard -Value $callbackUrl
-  $env:INSTAGRAM_APP_ID = $appId.Trim()
-  $env:INSTAGRAM_APP_SECRET = $appSecret
   $env:INSTAGRAM_REDIRECT_URI = $callbackUrl
   $env:POSTFLOW_OAUTH_CALLBACK_PORT = [string]$oauthPort
 
   Write-Host ''
   Write-Host 'Postflow is ready.' -ForegroundColor Green
-  Write-Host 'Paste this URL into Meta -> Set up Instagram business login:' -ForegroundColor Cyan
+  Write-Host 'OAuth callback URL (also available inside Postflow):' -ForegroundColor Cyan
   Write-Host $callbackUrl -ForegroundColor Yellow
   Write-Host '(It has also been copied to your clipboard.)'
-  Write-Host 'Then open http://localhost:3000 and click Connect with Meta.'
+  Write-Host 'Open http://localhost:3000 and click Connect with Meta.'
   Write-Host 'Keep this PowerShell window open while using Postflow.'
   Write-Host ''
 
@@ -67,10 +56,9 @@ try {
     $devProcess = Start-Process -FilePath $pnpm -ArgumentList @('dev') -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru
   }
   $agentProcess = Start-Process -FilePath $node -ArgumentList @((Join-Path $projectRoot 'local-agent.mjs')) -WorkingDirectory $projectRoot -NoNewWindow -PassThru
+  Start-Process 'http://localhost:3000'
   Wait-Process -Id $agentProcess.Id
 } finally {
-  if ($secretPointer -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($secretPointer) }
-  $env:INSTAGRAM_APP_SECRET = $null
   if ($agentProcess -and -not $agentProcess.HasExited) { Stop-Process -Id $agentProcess.Id -Force }
   if ($devProcess -and -not $devProcess.HasExited) { Stop-Process -Id $devProcess.Id -Force }
   if ($tunnelProcess -and -not $tunnelProcess.HasExited) { Stop-Process -Id $tunnelProcess.Id -Force }
