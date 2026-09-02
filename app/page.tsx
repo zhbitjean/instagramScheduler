@@ -107,7 +107,7 @@ export default function Home() {
       const body = await response.json();
       setInstagramAccounts(body.accounts || []);
       setMetaRedirectUri(body.redirectUri || '');
-      if (body.connected) { setAccountStatus('ready'); setInstagramUsername(body.account.username); setAccountMessage('Professional account selected.'); }
+      if (body.connected) { setAccountStatus('ready'); setInstagramUsername(body.account.username); setAccountMessage('Instagram connected. Your scheduling workspace is ready.'); }
       else { setAccountStatus('missing'); setInstagramUsername(''); setAccountMessage(body.configured ? 'Choose Add another account to sign in with Meta.' : 'Meta app setup is required before your first sign-in.'); }
     } catch {
       setAccountMessage('Start the Postflow local service before connecting Instagram.');
@@ -115,14 +115,15 @@ export default function Home() {
   }
 
   async function connectInstagram() {
+    const popup = window.open('about:blank', 'instagram-connect', 'popup=yes,width=620,height=760');
+    if (!popup) { setAccountMessage('Allow pop-ups for Postflow, then try again.'); return; }
     try {
       const statusResponse = await fetch('http://127.0.0.1:3030/instagram/status');
       const status = await statusResponse.json();
       setMetaRedirectUri(status.redirectUri || '');
-      if (!status.configured) { setMetaSetupOpen(true); setAccountMenuOpen(false); return; }
-    } catch { setAccountMessage('Start Postflow with start-postflow.ps1 first.'); return; }
-    const popup = window.open('http://127.0.0.1:3030/instagram/connect', 'instagram-connect', 'popup=yes,width=620,height=760');
-    if (!popup) { setAccountMessage('Allow pop-ups for Postflow, then try again.'); return; }
+      if (!status.configured) { popup.close(); setMetaSetupOpen(true); setAccountMenuOpen(false); return; }
+    } catch { popup.close(); setAccountMessage('Start Postflow with start-postflow.ps1 first.'); return; }
+    popup.location.href = 'http://127.0.0.1:3030/instagram/connect';
     setAccountMessage('Sign in securely in the Meta window. Postflow never sees your password.');
     const receiveConnection = (event: MessageEvent) => {
       if (event.origin === 'http://127.0.0.1:3030' && event.data?.type === 'postflow-instagram-connected') {
@@ -149,7 +150,7 @@ export default function Home() {
       if (!response.ok) throw new Error(body.error);
       setMetaAppSecret('');
       setMetaSetupOpen(false);
-      setAccountMessage('Meta app configured. Opening Instagram sign-in…');
+      setAccountMessage('Connection saved. Continue in Instagram’s secure sign-in window.');
       await connectInstagram();
     } catch (error) {
       setAccountMessage(error instanceof Error ? error.message : 'Could not save the Meta app settings.');
@@ -204,7 +205,7 @@ export default function Home() {
         </div>
         <section className="mt-6 rounded-3xl border bg-[#201d2c] p-5 text-white sm:p-6"><div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h2 className="font-semibold">Coming up</h2><p className="mt-1 text-xs text-white/55">A preview of your next four posts</p></div><div className="flex items-center gap-2 text-xs text-white/65"><Camera className="size-4" /> Publishing to <strong className="text-white">@yourstudio</strong></div></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{scheduled.map(({ item, day, time }, index) => <div key={item.id} className="flex items-center gap-3 rounded-2xl bg-white/[.08] p-3"><img src={item.src} alt="" className="size-14 rounded-xl object-cover" /><div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wider text-[#bca9ff]">Post {index + 1}</p><p className="mt-1 truncate text-sm font-medium">{item.name}</p><p className="mt-1 text-[11px] text-white/55">{day} · {time}</p></div></div>)}</div></section>
       </div>
-      {metaSetupOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-[#171522]/55 p-4 backdrop-blur-sm" onClick={() => setMetaSetupOpen(false)}><div role="dialog" aria-modal="true" aria-labelledby="meta-setup-title" onClick={(event) => event.stopPropagation()} className="w-full max-w-lg rounded-3xl border bg-card p-6 shadow-2xl"><div className="mb-5 flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#eef5ff] text-[#0064e0]"><Settings className="size-5" /></span><div><h2 id="meta-setup-title" className="text-lg font-semibold">Connect Postflow to Instagram</h2><p className="mt-1 text-xs leading-relaxed text-muted-foreground">One-time owner setup. Regular users will only see Instagram’s normal login screen.</p></div></div><div className="space-y-4"><div className="rounded-2xl bg-secondary/60 p-3"><p className="text-xs font-semibold">1. Add this return address in Meta</p><div className="mt-2 flex gap-2"><Input value={metaRedirectUri} readOnly className="bg-background text-[11px]" /><Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(metaRedirectUri)}>Copy</Button></div></div><div><p className="mb-2 text-xs font-semibold">2. Enter the Postflow app credentials once</p><div className="space-y-2"><Input value={metaAppId} onChange={(event) => setMetaAppId(event.target.value)} inputMode="numeric" placeholder="Instagram app ID" /><Input value={metaAppSecret} onChange={(event) => setMetaAppSecret(event.target.value)} type="password" placeholder="Instagram app secret" /></div><p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">Saved only on this computer. This is not your Instagram username or password.</p></div></div><div className="mt-5 flex gap-2"><Button variant="outline" className="flex-1" onClick={() => setMetaSetupOpen(false)}>Not now</Button><Button className="flex-1 bg-[#0064e0] hover:bg-[#0057c2]" onClick={saveMetaSetup}>Finish & open Instagram</Button></div><p className="mt-3 text-center text-[11px] text-muted-foreground">{accountMessage}</p></div></div>}
+      {metaSetupOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-[#171522]/55 p-4 backdrop-blur-sm" onClick={() => setMetaSetupOpen(false)}><div role="dialog" aria-modal="true" aria-labelledby="meta-setup-title" onClick={(event) => event.stopPropagation()} className="w-full max-w-lg rounded-3xl border bg-card p-6 shadow-2xl"><div className="mb-5 flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#eef5ff] text-[#0064e0]"><Settings className="size-5" /></span><div><h2 id="meta-setup-title" className="text-lg font-semibold">Connect Postflow to Instagram</h2><p className="mt-1 text-xs leading-relaxed text-muted-foreground">One-time owner setup. After Instagram authorizes the account, you return to the scheduling workspace automatically.</p></div></div><div className="space-y-4"><div className="rounded-2xl bg-secondary/60 p-3"><p className="text-xs font-semibold">1. Add this return address in Meta</p><div className="mt-2 flex gap-2"><Input value={metaRedirectUri} readOnly className="bg-background text-[11px]" /><Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(metaRedirectUri)}>Copy</Button></div></div><div><p className="mb-2 text-xs font-semibold">2. Enter the Postflow app credentials once</p><div className="space-y-2"><Input value={metaAppId} onChange={(event) => setMetaAppId(event.target.value)} inputMode="numeric" placeholder="Instagram app ID" /><Input value={metaAppSecret} onChange={(event) => setMetaAppSecret(event.target.value)} type="password" placeholder="Instagram app secret" /></div><p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">Saved only on this computer. This is not your Instagram username or password.</p></div></div><div className="mt-5 flex gap-2"><Button variant="outline" className="flex-1" onClick={() => setMetaSetupOpen(false)}>Not now</Button><Button className="flex-1 bg-[#0064e0] hover:bg-[#0057c2]" onClick={saveMetaSetup}>Continue to Instagram</Button></div><p className="mt-3 text-center text-[11px] text-muted-foreground">{accountMessage}</p></div></div>}
     </main>
   );
 }
