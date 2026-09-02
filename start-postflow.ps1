@@ -8,12 +8,17 @@ $tunnelOutput = Join-Path $env:TEMP 'postflow-cloudflared-output.log'
 $tunnelProcess = $null
 $agentProcess = $null
 $devProcess = $null
+$ownerEnv = Join-Path $projectRoot '.env.local'
 
 if (-not (Test-Path -LiteralPath $cloudflared)) {
   throw 'Cloudflare Tunnel is not installed. Install Cloudflare.cloudflared with winget first.'
 }
 
 try {
+  if (Test-Path -LiteralPath $ownerEnv) {
+    $secretLine = Get-Content -LiteralPath $ownerEnv | Where-Object { $_ -match '^\s*INSTAGRAM_APP_SECRET\s*=' } | Select-Object -Last 1
+    if ($secretLine) { $env:INSTAGRAM_APP_SECRET = ($secretLine -replace '^\s*INSTAGRAM_APP_SECRET\s*=\s*', '').Trim().Trim('"').Trim("'") }
+  }
   if (Test-Path -LiteralPath $tunnelLog) { Remove-Item -LiteralPath $tunnelLog }
   if (Test-Path -LiteralPath $tunnelOutput) { Remove-Item -LiteralPath $tunnelOutput }
   $tunnelProcess = Start-Process -FilePath $cloudflared -ArgumentList @('tunnel', '--url', "http://127.0.0.1:$oauthPort", '--no-autoupdate') -RedirectStandardError $tunnelLog -RedirectStandardOutput $tunnelOutput -WindowStyle Hidden -PassThru
@@ -40,6 +45,7 @@ try {
   Write-Host $callbackUrl -ForegroundColor Yellow
   Write-Host '(It has also been copied to your clipboard.)'
   Write-Host 'Open http://localhost:3000 and click Connect with Meta.'
+  if ([string]::IsNullOrWhiteSpace($env:INSTAGRAM_APP_SECRET)) { Write-Host 'Owner setup needed: add INSTAGRAM_APP_SECRET to .env.local, then restart.' -ForegroundColor Yellow }
   Write-Host 'Keep this PowerShell window open while using Postflow.'
   Write-Host ''
 

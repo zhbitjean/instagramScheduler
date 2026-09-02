@@ -33,9 +33,6 @@ export default function Home() {
   const [instagramUsername, setInstagramUsername] = useState('');
   const [instagramAccounts, setInstagramAccounts] = useState<InstagramAccount[]>([]);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [metaSetupOpen, setMetaSetupOpen] = useState(false);
-  const [metaAppSecret, setMetaAppSecret] = useState('');
-  const [metaRedirectUri, setMetaRedirectUri] = useState('');
   const [selected, setSelected] = useState<Set<number | string>>(new Set());
   const [menuId, setMenuId] = useState<number | string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -105,7 +102,6 @@ export default function Home() {
       const response = await fetch('http://127.0.0.1:3030/instagram/status');
       const body = await response.json();
       setInstagramAccounts(body.accounts || []);
-      setMetaRedirectUri(body.redirectUri || '');
       if (body.connected) { setAccountStatus('ready'); setInstagramUsername(body.account.username); setAccountMessage('Instagram connected. Your scheduling workspace is ready.'); }
       else { setAccountStatus('missing'); setInstagramUsername(''); setAccountMessage(body.configured ? 'Choose Add another account to sign in with Meta.' : 'Meta app setup is required before your first sign-in.'); }
     } catch {
@@ -119,8 +115,7 @@ export default function Home() {
     try {
       const statusResponse = await fetch('http://127.0.0.1:3030/instagram/status');
       const status = await statusResponse.json();
-      setMetaRedirectUri(status.redirectUri || '');
-      if (!status.configured) { popup.close(); setMetaSetupOpen(true); setAccountMenuOpen(false); return; }
+      if (!status.configured) { popup.close(); setAccountMenuOpen(false); setAccountMessage('Postflow owner configuration is incomplete. Add the Instagram App Secret to .env.local and restart Postflow.'); return; }
     } catch { popup.close(); setAccountMessage('Start Postflow with start-postflow.ps1 first.'); return; }
     popup.location.href = 'http://127.0.0.1:3030/instagram/connect';
     setAccountMessage('Sign in securely in the Meta window. Postflow never sees your password.');
@@ -141,21 +136,6 @@ export default function Home() {
     }, 800);
   }
 
-  async function saveMetaSetup() {
-    try {
-      setAccountMessage('Saving Meta app settings locally…');
-      const response = await fetch('http://127.0.0.1:3030/instagram/configure-app', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appSecret: metaAppSecret }) });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error);
-      setMetaAppSecret('');
-      setMetaSetupOpen(false);
-      setAccountMessage('Connection saved. Continue in Instagram’s secure sign-in window.');
-      await connectInstagram();
-    } catch (error) {
-      setAccountMessage(error instanceof Error ? error.message : 'Could not save the Meta app settings.');
-    }
-  }
-
   async function selectInstagramAccount(account: InstagramAccount) {
     const response = await fetch('http://127.0.0.1:3030/instagram/select', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ accountId: account.id }) });
     if (!response.ok) { setAccountMessage('Could not select that account.'); return; }
@@ -170,7 +150,7 @@ export default function Home() {
       <header className="sticky top-0 z-30 border-b border-border/70 bg-background/90 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-[1500px] items-center justify-between px-5 lg:px-8">
           <div className="flex items-center gap-3"><div className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm"><Sparkles className="size-4" /></div><div><p className="font-semibold leading-none tracking-tight">Postflow</p><p className="mt-1 text-[11px] text-muted-foreground">Instagram scheduler</p></div></div>
-          <div className="flex items-center gap-2"><div className="relative hidden sm:block"><button onClick={() => { setAccountMenuOpen((open) => !open); refreshInstagramStatus(); }} aria-expanded={accountMenuOpen} className="flex items-center gap-2 rounded-full border bg-card px-3 py-2 text-xs font-medium"><span className={`size-2 rounded-full ${accountStatus === 'ready' ? 'bg-emerald-500' : 'bg-amber-400'}`} />{accountStatus === 'ready' ? `@${instagramUsername}` : 'Log in to Instagram'} <ChevronDown className={`size-3 transition ${accountMenuOpen ? 'rotate-180' : ''}`} /></button>{accountMenuOpen && <div className="absolute right-0 top-11 z-50 w-72 rounded-2xl border bg-card p-2 shadow-xl"><p className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Instagram accounts</p>{instagramAccounts.map((account) => <button key={account.id} onClick={() => selectInstagramAccount(account)} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-secondary"><span className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-[#7952e8] to-[#ef785b] text-[10px] font-bold text-white">{account.username.slice(0,2).toUpperCase()}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">@{account.username}</span><span className="block text-[11px] text-muted-foreground">Professional account</span></span>{instagramUsername === account.username && <Check className="size-4 text-emerald-500" />}</button>)}{instagramAccounts.length > 0 && <div className="my-1 border-t" />}<button onClick={connectInstagram} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-[#0064e0] hover:bg-[#f0f6ff]"><Plus className="size-4" /> Log into another account</button><p className="px-3 pb-1 pt-2 text-[10px] leading-relaxed text-muted-foreground">Instagram opens the official sign-in page. Postflow never receives your password.</p></div>}</div><Button variant="ghost" size="icon" aria-label="Help"><CircleHelp /></Button><Button variant="ghost" size="icon" aria-label="Settings" onClick={() => setMetaSetupOpen(true)}><Settings /></Button></div>
+          <div className="flex items-center gap-2"><div className="relative hidden sm:block"><button onClick={() => { setAccountMenuOpen((open) => !open); refreshInstagramStatus(); }} aria-expanded={accountMenuOpen} className="flex items-center gap-2 rounded-full border bg-card px-3 py-2 text-xs font-medium"><span className={`size-2 rounded-full ${accountStatus === 'ready' ? 'bg-emerald-500' : 'bg-amber-400'}`} />{accountStatus === 'ready' ? `@${instagramUsername}` : 'Log in to Instagram'} <ChevronDown className={`size-3 transition ${accountMenuOpen ? 'rotate-180' : ''}`} /></button>{accountMenuOpen && <div className="absolute right-0 top-11 z-50 w-72 rounded-2xl border bg-card p-2 shadow-xl"><p className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Instagram accounts</p>{instagramAccounts.map((account) => <button key={account.id} onClick={() => selectInstagramAccount(account)} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left hover:bg-secondary"><span className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-[#7952e8] to-[#ef785b] text-[10px] font-bold text-white">{account.username.slice(0,2).toUpperCase()}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">@{account.username}</span><span className="block text-[11px] text-muted-foreground">Professional account</span></span>{instagramUsername === account.username && <Check className="size-4 text-emerald-500" />}</button>)}{instagramAccounts.length > 0 && <div className="my-1 border-t" />}<button onClick={connectInstagram} className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-[#0064e0] hover:bg-[#f0f6ff]"><Plus className="size-4" /> Log into another account</button><p className="px-3 pb-1 pt-2 text-[10px] leading-relaxed text-muted-foreground">Instagram opens the official sign-in page. Postflow never receives your password.</p></div>}</div><Button variant="ghost" size="icon" aria-label="Help"><CircleHelp /></Button><Button variant="ghost" size="icon" aria-label="Settings"><Settings /></Button></div>
         </div>
       </header>
       <div className="mx-auto max-w-[1500px] px-5 py-7 lg:px-8">
@@ -204,7 +184,6 @@ export default function Home() {
         </div>
         <section className="mt-6 rounded-3xl border bg-[#201d2c] p-5 text-white sm:p-6"><div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h2 className="font-semibold">Coming up</h2><p className="mt-1 text-xs text-white/55">A preview of your next four posts</p></div><div className="flex items-center gap-2 text-xs text-white/65"><Camera className="size-4" /> Publishing to <strong className="text-white">@yourstudio</strong></div></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{scheduled.map(({ item, day, time }, index) => <div key={item.id} className="flex items-center gap-3 rounded-2xl bg-white/[.08] p-3"><img src={item.src} alt="" className="size-14 rounded-xl object-cover" /><div className="min-w-0"><p className="text-[10px] font-bold uppercase tracking-wider text-[#bca9ff]">Post {index + 1}</p><p className="mt-1 truncate text-sm font-medium">{item.name}</p><p className="mt-1 text-[11px] text-white/55">{day} · {time}</p></div></div>)}</div></section>
       </div>
-      {metaSetupOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-[#171522]/55 p-4 backdrop-blur-sm" onClick={() => setMetaSetupOpen(false)}><div role="dialog" aria-modal="true" aria-labelledby="meta-setup-title" onClick={(event) => event.stopPropagation()} className="w-full max-w-lg rounded-3xl border bg-card p-6 shadow-2xl"><div className="mb-5 flex items-start gap-3"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[#eef5ff] text-[#0064e0]"><Settings className="size-5" /></span><div><h2 id="meta-setup-title" className="text-lg font-semibold">Finish owner setup</h2><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Postflow already knows its Instagram App ID. This private setup is shown only to the owner.</p></div></div><div className="space-y-4"><div className="rounded-2xl bg-secondary/60 p-3"><p className="text-xs font-semibold">1. Confirm Meta’s return address</p><div className="mt-2 flex gap-2"><Input value={metaRedirectUri} readOnly className="bg-background text-[11px]" /><Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(metaRedirectUri)}>Copy</Button></div></div><div><p className="mb-2 text-xs font-semibold">2. Unlock Postflow’s Instagram connection</p><Input value={metaAppSecret} onChange={(event) => setMetaAppSecret(event.target.value)} type="password" placeholder="Instagram app secret from Meta" /><p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">Saved only on this computer. Regular Instagram users never see or enter this value.</p></div></div><div className="mt-5 flex gap-2"><Button variant="outline" className="flex-1" onClick={() => setMetaSetupOpen(false)}>Not now</Button><Button className="flex-1 bg-[#0064e0] hover:bg-[#0057c2]" onClick={saveMetaSetup}>Continue to Instagram</Button></div><p className="mt-3 text-center text-[11px] text-muted-foreground">{accountMessage}</p></div></div>}
     </main>
   );
 }
