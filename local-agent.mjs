@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 
 const PORT = Number(process.env.POSTFLOW_LOCAL_PORT || 3030);
+const OAUTH_CALLBACK_PORT = Number(process.env.POSTFLOW_OAUTH_CALLBACK_PORT || 3031);
 const allowedExtensions = new Set(['.jpg', '.jpeg', '.mp4', '.mov']);
 let mediaRoot = process.env.POSTFLOW_MEDIA_ROOT ? resolve(process.env.POSTFLOW_MEDIA_ROOT) : '';
 let doneRoot = process.env.POSTFLOW_DONE_ROOT ? resolve(process.env.POSTFLOW_DONE_ROOT) : '';
@@ -50,13 +51,30 @@ async function readBody(request) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
 }
 
+async function handleInstagramCallback(url, response) {
+  const code = url.searchParams.get('code');
+  if (!code) return json(response, 400, { error: url.searchParams.get('error_description') || 'Instagram did not return an authorization code.' });
+  const form = new URLSearchParams({ client_id: instagramAppId, client_secret: instagramAppSecret, grant_type: 'authorization_code', redirect_uri: instagramRedirectUri, code });
+  const tokenResponse = await fetch('https://api.instagram.com/oauth/access_token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form });
+  const token = await tokenResponse.json();
+  if (!tokenResponse.ok) return json(response, 502, { error: token.error_message || 'Instagram token exchange failed.' });
+  const profileResponse = await fetch(`https://graph.instagram.com/me?fields=user_id,username&access_token=${encodeURIComponent(token.access_token)}`);
+  const profile = await profileResponse.json();
+  if (!profileResponse.ok) return json(response, 502, { error: profile.error?.message || 'Could not load the Instagram profile.' });
+  const instagramAccount = { id: String(profile.user_id || profile.id), username: profile.username, accessToken: token.access_token };
+  instagramAccounts = [...instagramAccounts.filter((account) => account.id !== instagramAccount.id), instagramAccount];
+  selectedInstagramAccountId = instagramAccount.id;
+  response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+  return response.end(`<!doctype html><meta charset="utf-8"><title>Instagram connected</title><style>body{font:16px system-ui;background:#f8f6ff;color:#201d2c;display:grid;place-items:center;min-height:100vh;margin:0}.card{background:white;padding:32px;border-radius:24px;box-shadow:0 20px 60px #2d23501a;text-align:center}</style><div class="card"><h1>@${safePart(profile.username)} connected</h1><p>This window will close automatically.</p></div><script>setTimeout(()=>window.close(),900)</script>`);
+}
+
 createServer(async (request, response) => {
   try {
     if (request.method === 'OPTIONS') return json(response, 204, {});
     const url = new URL(request.url || '/', `http://127.0.0.1:${PORT}`);
 
     if (request.method === 'GET' && url.pathname === '/health') {
-      return json(response, 200, { ok: true, mediaRoot, doneRoot: doneRoot || (mediaRoot ? join(mediaRoot, 'DONE') : '') });
+      return json(response, 200, { ok: true, mediaRoot, doneRoot: doneRoot || (mediaRoot ? join(mediaRoot, 'DONE') : ''), instagramRedirectUri });
     }
 
     if (request.method === 'GET' && url.pathname === '/instagram/status') {
@@ -94,20 +112,7 @@ createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/instagram/callback') {
-      const code = url.searchParams.get('code');
-      if (!code) return json(response, 400, { error: url.searchParams.get('error_description') || 'Instagram did not return an authorization code.' });
-      const form = new URLSearchParams({ client_id: instagramAppId, client_secret: instagramAppSecret, grant_type: 'authorization_code', redirect_uri: instagramRedirectUri, code });
-      const tokenResponse = await fetch('https://api.instagram.com/oauth/access_token', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: form });
-      const token = await tokenResponse.json();
-      if (!tokenResponse.ok) return json(response, 502, { error: token.error_message || 'Instagram token exchange failed.' });
-      const profileResponse = await fetch(`https://graph.instagram.com/me?fields=user_id,username&access_token=${encodeURIComponent(token.access_token)}`);
-      const profile = await profileResponse.json();
-      if (!profileResponse.ok) return json(response, 502, { error: profile.error?.message || 'Could not load the Instagram profile.' });
-      const instagramAccount = { id: String(profile.user_id || profile.id), username: profile.username, accessToken: token.access_token };
-      instagramAccounts = [...instagramAccounts.filter((account) => account.id !== instagramAccount.id), instagramAccount];
-      selectedInstagramAccountId = instagramAccount.id;
-      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      return response.end(`<!doctype html><meta charset="utf-8"><title>Instagram connected</title><style>body{font:16px system-ui;background:#f8f6ff;color:#201d2c;display:grid;place-items:center;min-height:100vh;margin:0}.card{background:white;padding:32px;border-radius:24px;box-shadow:0 20px 60px #2d23501a;text-align:center}</style><div class="card"><h1>@${safePart(profile.username)} connected</h1><p>This window will close automatically.</p></div><script>window.opener?.postMessage({type:'postflow-instagram-connected'},'http://localhost:3000');setTimeout(()=>window.close(),900)</script>`);
+      return handleInstagramCallback(url, response);
     }
 
     if (request.method === 'POST' && url.pathname === '/configure') {
@@ -187,4 +192,16 @@ createServer(async (request, response) => {
   }
 }).listen(PORT, '127.0.0.1', () => {
   console.log(`Postflow local folder service: http://127.0.0.1:${PORT}`);
+});
+
+createServer(async (request, response) => {
+  try {
+    const url = new URL(request.url || '/', `http://127.0.0.1:${OAUTH_CALLBACK_PORT}`);
+    if (request.method === 'GET' && url.pathname === '/instagram/callback') return handleInstagramCallback(url, response);
+    return json(response, 404, { error: 'Not found.' });
+  } catch (error) {
+    return json(response, 500, { error: error instanceof Error ? error.message : 'Unexpected OAuth callback error.' });
+  }
+}).listen(OAUTH_CALLBACK_PORT, '127.0.0.1', () => {
+  console.log(`Postflow OAuth callback service: http://127.0.0.1:${OAUTH_CALLBACK_PORT}`);
 });

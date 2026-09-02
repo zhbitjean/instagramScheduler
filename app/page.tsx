@@ -121,6 +121,13 @@ export default function Home() {
       }
     };
     window.addEventListener('message', receiveConnection);
+    const popupWatcher = window.setInterval(() => {
+      if (popup.closed) {
+        window.clearInterval(popupWatcher);
+        window.removeEventListener('message', receiveConnection);
+        refreshInstagramStatus();
+      }
+    }, 800);
   }
 
   async function selectInstagramAccount(account: InstagramAccount) {
