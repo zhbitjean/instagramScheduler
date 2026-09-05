@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, CalendarDays, Camera, Check, ChevronDown, CircleHelp, Clock3, FolderCheck, FolderInput, FolderOpen, GripVertical, ImagePlus, Link2, MoreHorizontal, Play, Plus, RefreshCw, Send, Settings, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, CalendarDays, Camera, Check, ChevronDown, CircleHelp, Clock3, FolderCheck, FolderInput, FolderOpen, GripVertical, ImagePlus, Link2, MoreHorizontal, Play, Plus, Send, Settings, Sparkles, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -50,10 +50,10 @@ export default function Home() {
     const added = Array.from(files).map((file, index) => ({ id: Date.now() + index, name: file.name, src: URL.createObjectURL(file), type: file.type.startsWith('video/') ? 'Video' as const : 'Photo' as const })); setMedia((current) => [...current, ...added]);
   }
 
-  async function scanFolder() {
+  async function scanFolder(sourcePath = mediaRoot, archivePath = doneRoot) {
     try {
-      setFolderStatus('Connecting to local folder service…');
-      const configured = await fetch('http://127.0.0.1:3030/configure', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mediaRoot, doneRoot }) });
+      setFolderStatus('Loading photos and videos…');
+      const configured = await fetch('http://127.0.0.1:3030/configure', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mediaRoot: sourcePath, doneRoot: archivePath }) });
       const configuredBody = await configured.json();
       if (!configured.ok) throw new Error(configuredBody.error);
       const response = await fetch('http://127.0.0.1:3030/scan');
@@ -68,20 +68,17 @@ export default function Home() {
     }
   }
 
-  async function chooseFolder(kind: 'source' | 'done') {
+  async function chooseFolder() {
     try {
-      setFolderStatus('Opening Windows folder chooser…');
-      const response = await fetch('http://127.0.0.1:3030/pick-folder', { method: 'POST' });
+      setFolderStatus('Choose the folder containing your photos and videos…');
+      const response = await fetch('http://127.0.0.1:3030/pick-folder', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: mediaRoot }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
       if (body.cancelled) { setFolderStatus('Folder selection cancelled.'); return; }
-      if (kind === 'source') {
-        setMediaRoot(body.path);
-        setDoneRoot(`${body.path}\\DONE`);
-      } else {
-        setDoneRoot(body.path);
-      }
-      setFolderStatus('Folder selected. Click Connect & scan folder.');
+      const archivePath = `${body.path}\\DONE`;
+      setMediaRoot(body.path);
+      setDoneRoot(archivePath);
+      await scanFolder(body.path, archivePath);
     } catch (error) {
       setFolderStatus(error instanceof Error ? error.message : 'Could not open the folder chooser.');
     }
@@ -173,9 +170,8 @@ export default function Home() {
 
             <section className="rounded-3xl border bg-card p-5 shadow-[0_18px_45px_rgb(45_35_80/5%)]">
               <div className="mb-4 flex items-center gap-3"><span className="grid size-9 place-items-center rounded-xl bg-[#eaf7f1] text-[#25865e]"><FolderInput className="size-4" /></span><div><h2 className="font-semibold">Local folder automation</h2><p className="text-xs text-muted-foreground">Load files and archive successful posts</p></div></div>
-              <div className="space-y-3"><label className="block text-xs font-semibold text-muted-foreground">Source folder<div className="relative mt-1.5"><Input value={mediaRoot} onChange={(event) => setMediaRoot(event.target.value)} className="h-9 bg-background pr-10 font-mono text-xs" /><button type="button" onClick={() => chooseFolder('source')} className="absolute right-1 top-1 grid size-7 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-[#6942d0]" aria-label="Choose source folder" title="Choose source folder"><FolderOpen className="size-4" /></button></div></label><label className="block text-xs font-semibold text-muted-foreground">DONE folder<div className="relative mt-1.5"><Input value={doneRoot} onChange={(event) => setDoneRoot(event.target.value)} className="h-9 bg-background pr-10 font-mono text-xs" /><button type="button" onClick={() => chooseFolder('done')} className="absolute right-1 top-1 grid size-7 place-items-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-[#6942d0]" aria-label="Choose DONE folder" title="Choose DONE folder"><FolderOpen className="size-4" /></button></div></label></div>
-              <Button variant="outline" onClick={scanFolder} className="mt-4 h-9 w-full"><RefreshCw /> Connect & scan folder</Button>
-              <div className="mt-3 flex items-start gap-2 rounded-xl bg-secondary/65 p-3"><FolderCheck className="mt-0.5 size-4 shrink-0 text-[#25865e]" /><div><p className="text-xs font-semibold">{folderStatus}</p><p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">After a successful post: <span className="font-mono">YYYYMMDD_HHMM_account_001_name.jpg</span>. Failed posts stay in the source folder.</p></div></div>
+              <Button variant="outline" onClick={chooseFolder} className="h-11 w-full justify-start rounded-xl bg-background px-3"><FolderOpen className="text-[#25865e]" /><span className="flex-1 text-left">Choose photo &amp; video folder</span></Button>
+              <div className="mt-3 rounded-xl bg-secondary/65 p-3"><div className="flex items-start gap-2"><FolderCheck className="mt-0.5 size-4 shrink-0 text-[#25865e]" /><div className="min-w-0"><p className="truncate text-xs font-semibold">{mediaRoot || 'No folder selected'}</p><p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">Completed posts move automatically to a <span className="font-semibold">DONE</span> folder here.</p></div></div><p className="mt-2 border-t border-border/70 pt-2 text-[11px] text-muted-foreground">{folderStatus}</p></div>
             </section>
 
             <section className="rounded-3xl border bg-card p-5 shadow-[0_18px_45px_rgb(45_35_80/5%)]"><div className="mb-5 flex items-center gap-3"><span className="grid size-9 place-items-center rounded-xl bg-[#fff0ea] text-[#e36a43]"><CalendarDays className="size-4" /></span><div><h2 className="font-semibold">Posting schedule</h2><p className="text-xs text-muted-foreground">America / New York</p></div></div><label className="text-xs font-semibold text-muted-foreground">Post every</label><div className="mt-2 flex items-center gap-2"><Input type="number" min={1} max={30} value={frequency} onChange={(event) => setFrequency(Number(event.target.value))} className="h-10 w-20 bg-background text-center font-semibold" /><span className="text-sm font-medium">days</span></div><div className="my-5 h-px bg-border" /><div className="mb-2 flex items-center justify-between"><label className="text-xs font-semibold text-muted-foreground">Times on posting days</label><button onClick={() => setTimes((current) => [...current, '3:00 PM'])} className="flex items-center gap-1 text-xs font-semibold text-[#6942d0]"><Plus className="size-3" /> Add time</button></div><div className="space-y-2">{times.map((time, index) => <div key={`${time}-${index}`} className="flex items-center gap-2"><Clock3 className="size-4 text-muted-foreground" /><Input value={time} onChange={(event) => setTimes((current) => current.map((value, i) => i === index ? event.target.value : value))} className="h-9 bg-background" /><Button variant="ghost" size="icon-sm" aria-label={`Remove ${time}`} onClick={() => setTimes((current) => current.filter((_, i) => i !== index))}><Trash2 /></Button></div>)}</div><p className="mt-4 rounded-xl bg-secondary/65 px-3 py-2 text-xs leading-relaxed text-muted-foreground"><strong className="text-foreground">{times.length} posts</strong> every {frequency} days · Next run Tuesday</p></section>

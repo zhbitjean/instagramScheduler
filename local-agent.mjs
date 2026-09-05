@@ -133,7 +133,10 @@ createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/pick-folder') {
       if (process.platform !== 'win32') return json(response, 400, { error: 'The native folder picker is currently available on Windows.' });
       try {
-        const script = `$shell = New-Object -ComObject Shell.Application; $folder = $shell.BrowseForFolder(0, 'Choose a folder for Postflow', 0, 0); if ($null -ne $folder) { [Console]::Out.Write($folder.Self.Path) }`;
+        const body = await readBody(request);
+        const initialPath = String(body.path || '');
+        const encodedInitialPath = Buffer.from(initialPath, 'utf8').toString('base64');
+        const script = `Add-Type -AssemblyName System.Windows.Forms; $initial = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedInitialPath}')); $picker = New-Object System.Windows.Forms.OpenFileDialog; $picker.Title = 'Choose your Postflow media folder'; $picker.ValidateNames = $false; $picker.CheckFileExists = $false; $picker.CheckPathExists = $true; $picker.FileName = 'Select this folder'; if ($initial -and (Test-Path -LiteralPath $initial -PathType Container)) { $picker.InitialDirectory = $initial }; $owner = New-Object System.Windows.Forms.Form; $owner.TopMost = $true; $owner.ShowInTaskbar = $false; $owner.StartPosition = 'CenterScreen'; $owner.Opacity = 0; $owner.Show(); $owner.Activate(); $result = $picker.ShowDialog($owner); $owner.Close(); if ($result -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write([IO.Path]::GetDirectoryName($picker.FileName)) }`;
         const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-STA', '-Command', script], { windowsHide: true });
         const path = stdout.trim();
         if (!path) return json(response, 200, { cancelled: true });

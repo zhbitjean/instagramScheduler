@@ -9,6 +9,7 @@ $tunnelProcess = $null
 $agentProcess = $null
 $devProcess = $null
 $ownerEnv = Join-Path $projectRoot '.env.local'
+$publicCallbackUrl = ''
 
 if (-not (Test-Path -LiteralPath $cloudflared)) {
   throw 'Cloudflare Tunnel is not installed. Install Cloudflare.cloudflared with winget first.'
@@ -18,23 +19,29 @@ try {
   if (Test-Path -LiteralPath $ownerEnv) {
     $secretLine = Get-Content -LiteralPath $ownerEnv | Where-Object { $_ -match '^\s*INSTAGRAM_APP_SECRET\s*=' } | Select-Object -Last 1
     if ($secretLine) { $env:INSTAGRAM_APP_SECRET = ($secretLine -replace '^\s*INSTAGRAM_APP_SECRET\s*=\s*', '').Trim().Trim('"').Trim("'") }
+    $callbackLine = Get-Content -LiteralPath $ownerEnv | Where-Object { $_ -match '^\s*POSTFLOW_PUBLIC_CALLBACK_URL\s*=' } | Select-Object -Last 1
+    if ($callbackLine) { $publicCallbackUrl = ($callbackLine -replace '^\s*POSTFLOW_PUBLIC_CALLBACK_URL\s*=\s*', '').Trim().Trim('"').Trim("'") }
   }
-  if (Test-Path -LiteralPath $tunnelLog) { Remove-Item -LiteralPath $tunnelLog }
-  if (Test-Path -LiteralPath $tunnelOutput) { Remove-Item -LiteralPath $tunnelOutput }
-  $tunnelProcess = Start-Process -FilePath $cloudflared -ArgumentList @('tunnel', '--url', "http://127.0.0.1:$oauthPort", '--no-autoupdate') -RedirectStandardError $tunnelLog -RedirectStandardOutput $tunnelOutput -WindowStyle Hidden -PassThru
 
-  $deadline = (Get-Date).AddSeconds(30)
-  $tunnelUrl = $null
-  while ((Get-Date) -lt $deadline -and -not $tunnelUrl) {
-    Start-Sleep -Milliseconds 300
-    if (Test-Path -LiteralPath $tunnelLog) {
-      $match = Select-String -Path $tunnelLog -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' | Select-Object -First 1
-      if ($match) { $tunnelUrl = $match.Matches[0].Value }
+  if ($publicCallbackUrl) {
+    $callbackUrl = $publicCallbackUrl
+  } else {
+    if (Test-Path -LiteralPath $tunnelLog) { Remove-Item -LiteralPath $tunnelLog }
+    if (Test-Path -LiteralPath $tunnelOutput) { Remove-Item -LiteralPath $tunnelOutput }
+    $tunnelProcess = Start-Process -FilePath $cloudflared -ArgumentList @('tunnel', '--url', "http://127.0.0.1:$oauthPort", '--protocol', 'http2', '--no-autoupdate') -RedirectStandardError $tunnelLog -RedirectStandardOutput $tunnelOutput -WindowStyle Hidden -PassThru
+
+    $deadline = (Get-Date).AddSeconds(30)
+    $tunnelUrl = $null
+    while ((Get-Date) -lt $deadline -and -not $tunnelUrl) {
+      Start-Sleep -Milliseconds 300
+      if (Test-Path -LiteralPath $tunnelLog) {
+        $match = Select-String -Path $tunnelLog -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' | Select-Object -First 1
+        if ($match) { $tunnelUrl = $match.Matches[0].Value }
+      }
     }
+    if (-not $tunnelUrl) { throw 'Could not create the secure HTTPS tunnel.' }
+    $callbackUrl = "$tunnelUrl/instagram/callback"
   }
-  if (-not $tunnelUrl) { throw 'Could not create the secure HTTPS tunnel.' }
-
-  $callbackUrl = "$tunnelUrl/instagram/callback"
   Set-Clipboard -Value $callbackUrl
   $env:INSTAGRAM_REDIRECT_URI = $callbackUrl
   $env:POSTFLOW_OAUTH_CALLBACK_PORT = [string]$oauthPort
