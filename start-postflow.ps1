@@ -21,6 +21,10 @@ try {
     if ($secretLine) { $env:INSTAGRAM_APP_SECRET = ($secretLine -replace '^\s*INSTAGRAM_APP_SECRET\s*=\s*', '').Trim().Trim('"').Trim("'") }
     $callbackLine = Get-Content -LiteralPath $ownerEnv | Where-Object { $_ -match '^\s*POSTFLOW_PUBLIC_CALLBACK_URL\s*=' } | Select-Object -Last 1
     if ($callbackLine) { $publicCallbackUrl = ($callbackLine -replace '^\s*POSTFLOW_PUBLIC_CALLBACK_URL\s*=\s*', '').Trim().Trim('"').Trim("'") }
+    $openAiLine = Get-Content -LiteralPath $ownerEnv | Where-Object { $_ -match '^\s*OPENAI_API_KEY\s*=' } | Select-Object -Last 1
+    if ($openAiLine) { $env:OPENAI_API_KEY = ($openAiLine -replace '^\s*OPENAI_API_KEY\s*=\s*', '').Trim().Trim('"').Trim("'") }
+    $captionModelLine = Get-Content -LiteralPath $ownerEnv | Where-Object { $_ -match '^\s*OPENAI_CAPTION_MODEL\s*=' } | Select-Object -Last 1
+    if ($captionModelLine) { $env:OPENAI_CAPTION_MODEL = ($captionModelLine -replace '^\s*OPENAI_CAPTION_MODEL\s*=\s*', '').Trim().Trim('"').Trim("'") }
   }
 
   if ($publicCallbackUrl) {
@@ -53,6 +57,7 @@ try {
   Write-Host '(It has also been copied to your clipboard.)'
   Write-Host 'Open http://localhost:3000 and click Connect with Meta.'
   if ([string]::IsNullOrWhiteSpace($env:INSTAGRAM_APP_SECRET)) { Write-Host 'Owner setup needed: add INSTAGRAM_APP_SECRET to .env.local, then restart.' -ForegroundColor Yellow }
+  if ([string]::IsNullOrWhiteSpace($env:OPENAI_API_KEY)) { Write-Host 'AI captions are disabled: add OPENAI_API_KEY to .env.local, then restart.' -ForegroundColor Yellow }
   Write-Host 'Keep this PowerShell window open while using Postflow.'
   Write-Host ''
 

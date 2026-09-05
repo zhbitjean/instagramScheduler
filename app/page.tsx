@@ -24,6 +24,7 @@ export default function Home() {
   const [times, setTimes] = useState(['8:00 AM', '10:00 AM', '12:00 PM']);
   const [caption, setCaption] = useState('A little moment from the week ✨\n\nTaking time to notice the good stuff. #everydaymagic #slowliving');
   const [saved, setSaved] = useState(false);
+  const [scheduleMessage, setScheduleMessage] = useState('');
   const [draggedId, setDraggedId] = useState<number | string | null>(null);
   const [mediaRoot, setMediaRoot] = useState('C:\\Instagram\\READY');
   const [doneRoot, setDoneRoot] = useState('C:\\Instagram\\READY\\DONE');
@@ -81,6 +82,39 @@ export default function Home() {
       await scanFolder(body.path, archivePath);
     } catch (error) {
       setFolderStatus(error instanceof Error ? error.message : 'Could not open the folder chooser.');
+    }
+  }
+
+  function scheduledDate(index: number) {
+    const [clock = '12:00', meridiem = 'PM'] = (times[index % Math.max(times.length, 1)] || '12:00 PM').split(' ');
+    const [hourText, minuteText = '0'] = clock.split(':');
+    let hour = Number(hourText) % 12;
+    if (meridiem.toUpperCase() === 'PM') hour += 12;
+    const date = new Date();
+    date.setDate(date.getDate() + Math.floor(index / Math.max(times.length, 1)) * Math.max(frequency, 1));
+    date.setHours(hour, Number(minuteText), 0, 0);
+    while (date.getTime() <= Date.now()) date.setDate(date.getDate() + Math.max(frequency, 1));
+    return date.toISOString();
+  }
+
+  async function activateSchedule() {
+    setScheduleMessage('Creating local jobs…');
+    try {
+      if (!media.length) throw new Error('Choose a folder with at least one photo first.');
+      if (!times.length) throw new Error('Add at least one posting time.');
+      const localMedia = media.filter((item) => item.path);
+      if (!localMedia.length) throw new Error('Use Choose photo & video folder so Postflow can access the files.');
+      const results = await Promise.all(localMedia.map(async (item, index) => {
+        const response = await fetch('http://127.0.0.1:3030/schedules', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ imagePath: item.path, scheduledAt: scheduledDate(index), style: '', language: 'English', dryRun: true }) });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error);
+        return body.job;
+      }));
+      setSaved(true);
+      setScheduleMessage(`${results.length} dry-run jobs scheduled locally with random timing.`);
+    } catch (error) {
+      setSaved(false);
+      setScheduleMessage(error instanceof Error ? error.message : 'Could not create the schedule.');
     }
   }
 
@@ -151,7 +185,7 @@ export default function Home() {
         </div>
       </header>
       <div className="mx-auto max-w-[1500px] px-5 py-7 lg:px-8">
-        <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-semibold uppercase tracking-[.18em] text-primary">New schedule</p><h1 className="text-3xl font-semibold tracking-[-.04em] sm:text-4xl">Shape your posting rhythm.</h1><p className="mt-2 max-w-xl text-sm text-muted-foreground">Arrange your media, set the pace, then let your queue roll.</p></div><div className="flex gap-2"><Button variant="outline" className="h-10 px-4">Save draft</Button><Button className="h-10 bg-[#7952e8] px-4 hover:bg-[#6843d5]" onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 2400); }}>{saved ? <><Check /> Schedule ready</> : <><Send /> Activate schedule</>}</Button></div></div>
+        <div className="mb-7 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="mb-2 text-xs font-semibold uppercase tracking-[.18em] text-primary">New schedule</p><h1 className="text-3xl font-semibold tracking-[-.04em] sm:text-4xl">Shape your posting rhythm.</h1><p className="mt-2 max-w-xl text-sm text-muted-foreground">Arrange your media, set the pace, then let your queue roll.</p>{scheduleMessage && <p className="mt-2 text-xs font-medium text-[#6942d0]">{scheduleMessage}</p>}</div><div className="flex gap-2"><Button variant="outline" className="h-10 px-4">Save draft</Button><Button className="h-10 bg-[#7952e8] px-4 hover:bg-[#6843d5]" onClick={activateSchedule}>{saved ? <><Check /> Test schedule active</> : <><Send /> Activate test schedule</>}</Button></div></div>
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(330px,.65fr)]">
           <section className="rounded-3xl border bg-card p-4 shadow-[0_18px_45px_rgb(45_35_80/5%)] sm:p-6">
             <div className="mb-5 flex items-center justify-between"><div><h2 className="text-lg font-semibold tracking-tight">Media queue</h2><p className="mt-1 text-sm text-muted-foreground">Drag cards or use the arrows to choose what posts first.</p></div><span className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold">{media.length} items</span></div>

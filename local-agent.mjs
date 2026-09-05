@@ -1,9 +1,10 @@
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
-import { mkdir, readdir, rename, stat } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { applyJitter, dryRunTest } from './postflow-core.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -18,6 +19,48 @@ const instagramAppSecret = process.env.INSTAGRAM_APP_SECRET || '';
 const instagramRedirectUri = process.env.INSTAGRAM_REDIRECT_URI || `http://127.0.0.1:${PORT}/instagram/callback`;
 let instagramAccounts = [];
 let selectedInstagramAccountId = '';
+const scheduleFile = join(process.cwd(), '.postflow-schedules.json');
+let scheduledJobs = [];
+let schedulerBusy = false;
+
+function logEvent(event, details = {}) {
+  console.log(JSON.stringify({ timestamp: new Date().toISOString(), service: 'postflow-scheduler', event, ...details }));
+}
+
+async function saveJobs() {
+  await writeFile(scheduleFile, JSON.stringify(scheduledJobs, null, 2), 'utf8');
+}
+
+async function loadJobs() {
+  try { scheduledJobs = JSON.parse(await readFile(scheduleFile, 'utf8')); }
+  catch { scheduledJobs = []; }
+  logEvent('scheduler_started', { pending: scheduledJobs.filter((job) => job.status === 'pending').length });
+}
+
+async function runDueJobs() {
+  if (schedulerBusy) return;
+  schedulerBusy = true;
+  try {
+    const now = Date.now();
+    for (const job of scheduledJobs.filter((candidate) => candidate.status === 'pending' && new Date(candidate.triggerAt).getTime() <= now)) {
+      job.status = 'running';
+      job.startedAt = new Date().toISOString();
+      logEvent('job_triggered', { jobId: job.id, triggerAt: job.triggerAt, mediaPath: job.imagePath, dryRun: job.dryRun });
+      try {
+        if (!job.dryRun) throw new Error('Live Instagram publishing is not enabled yet; use dry-run mode.');
+        job.output = await dryRunTest(job);
+        job.status = 'completed';
+        job.completedAt = new Date().toISOString();
+        logEvent('job_completed', { jobId: job.id, finalText: job.output.finalText });
+      } catch (error) {
+        job.status = 'failed';
+        job.error = error instanceof Error ? error.message : String(error);
+        logEvent('job_failed', { jobId: job.id, error: job.error });
+      }
+      await saveJobs();
+    }
+  } finally { schedulerBusy = false; }
+}
 
 function publicInstagramAccount(account) {
   return account && { id: account.id, username: account.username };
@@ -87,6 +130,29 @@ createServer(async (request, response) => {
         accounts: instagramAccounts.map(publicInstagramAccount),
         redirectUri: instagramRedirectUri,
       });
+    }
+
+    if (request.method === 'GET' && url.pathname === '/schedules') {
+      return json(response, 200, { jobs: scheduledJobs });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/schedules') {
+      const body = await readBody(request);
+      if (!body.imagePath || !body.scheduledAt) return json(response, 400, { error: 'imagePath and scheduledAt are required.' });
+      await stat(resolve(String(body.imagePath)));
+      const jitter = applyJitter(body.scheduledAt, Number(body.jitterBeforeMinutes ?? 15), Number(body.jitterAfterMinutes ?? 30));
+      const job = { id: crypto.randomUUID(), imagePath: resolve(String(body.imagePath)), style: String(body.style || ''), language: String(body.language || 'English'), scheduledAt: new Date(body.scheduledAt).toISOString(), ...jitter, dryRun: body.dryRun !== false, status: 'pending', createdAt: new Date().toISOString() };
+      scheduledJobs.push(job);
+      await saveJobs();
+      logEvent('job_scheduled', { jobId: job.id, scheduledAt: job.scheduledAt, triggerAt: job.triggerAt, jitterMinutes: job.offsetMinutes, dryRun: job.dryRun });
+      return json(response, 201, { job });
+    }
+
+    if (request.method === 'POST' && url.pathname === '/dry-run') {
+      const body = await readBody(request);
+      const output = await dryRunTest({ imagePath: resolve(String(body.imagePath || '')), style: String(body.style || ''), language: String(body.language || 'English'), scheduledAt: body.scheduledAt });
+      logEvent('dry_run_completed', { mediaPath: output.media.path, triggerAt: output.triggerAt });
+      return json(response, 200, output);
     }
 
     if (request.method === 'POST' && url.pathname === '/instagram/select') {
@@ -210,3 +276,6 @@ createServer(async (request, response) => {
 }).listen(OAUTH_CALLBACK_PORT, '127.0.0.1', () => {
   console.log(`Postflow OAuth callback service: http://127.0.0.1:${OAUTH_CALLBACK_PORT}`);
 });
+
+await loadJobs();
+setInterval(() => { runDueJobs().catch((error) => logEvent('scheduler_tick_failed', { error: error.message })); }, 10_000);

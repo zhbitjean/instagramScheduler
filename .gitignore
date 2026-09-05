@@ -29,6 +29,7 @@ yarn-error.log*
 
 # local environment
 .env*
+.postflow-schedules.json
 !.env.example
 .postflow-config.json
 
